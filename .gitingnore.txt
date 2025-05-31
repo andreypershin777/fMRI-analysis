@@ -1,0 +1,12 @@
+__pycache__/
+.ipynb_checkpoints/
+EEG/
+EEG_face/
+fMRI_data/
+fMRI_logs/
+log/
+/M*
+Данные по вокселям/
+fmridesign*.ipynb
+*.iqx
+

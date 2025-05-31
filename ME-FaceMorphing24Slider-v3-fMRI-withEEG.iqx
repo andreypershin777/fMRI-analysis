@@ -1,0 +1,852 @@
+﻿*********************************************************************************************************************************************************************
+FACE MORPHING TASK - SLIDER CHOICE (Russian version).
+*********************************************************************************************************************************************************************
+
+*********************************************************************************************************************************************************************
+SCRIPT INFO
+*********************************************************************************************************************************************************************
+Date: last updated: 04/05/2024
+*********************************************************************************************************************************************************************
+BACKGROUND INFO
+*********************************************************************************************************************************************************************
+This script is a Morphed Faces Recognition task (slider choice variant) for fMRI.
+The task for the subject is to evaluate how much similar the presented face was with him/her. 
+The level of similarity from 100% (certainly me) to 0% (certainly NOT me) is to be set with slider using "->" or "<-" keys for moving it. The step is 10%.
+There is timeout for making choice and no option for earlier choice confirmation. Therefore no reaction time is recorded.
+
+(1) By default, the interstimulus time intervals (ISI) are randomly chosen from 7776 to 12224 ms with average of 10000 ms (~4 fMRI frames).
+This is done by randomly choosing the pause between the fMRI frame onset and trial onset from
+100, 378, 656, 934, 1212, 1490, 1768, 2046, 2324 ms
+(if trial with 100 ms pause is followed by trial with 2324 ms pause, ISI will be 12224 ms,
+if trial with 2324 ms pause is followed by trial with 100 ms pause, ISI will be 7776 ms, etc.). 
+Changes can be made under "COUNTERS".
+
+(2) By default, the color of the screen background is dark grey. Changes can be made under "VALUES". 
+
+(3) By default, the start of new trial is triggered by the onset of the new fMRI frame, which is detected using the signal,
+sent from fMRI scanner by the audio channel.
+
+(4) fMRI subject buttons are connected to the keyboard and emulate pressing the keys "A" (scan code 48, index finger*) and
+"A" (scan code 30, thumb*). These responces must be "faked": "B" to "->" and "A" to "<-" by running a separate program (for example, Microsoft PowerToys or similar) before running Inquisit. 
+You can change it as needed if necessary.
+* - finger-to-keyboard/scancode correspondences are for the MRI-compatible handheld control marked with "L" in International Tomography Center (Novosibirsk).
+
+(5) Put a copy of this script file to the folder with the prepared images of faces to record the test protocol to the same folder.
+(Or insert data path using "/file" in "data" according to your computer settings before starting the program.)
+
+
+
+*********************************************************************************************************************************************************************
+DEFAULTS AND DATA TO SAVE
+*********************************************************************************************************************************************************************
+
+<defaults>
+/ screencolor = (0, 0, 0)
+/ fontstyle = ("Arial", 4%, false, false, false, false, 5, 204)
+/ txbgcolor = black
+/ txcolor = white
+</defaults>
+
+<data> 
+/format = tab
+/columns = [date time blockcode values.TestBlockNum trialcode trialnum values.TestTrialNum response stimulusitem
+values.ResponseForSubj values.MeMorphShare values.FrMorphShare values.StMorphShare values.WaitedForSynchro values.PreStimInterval latency]
+/separatefiles = true
+</data>
+
+*********************************************************************************************************************************************************************
+
+
+*********************************************************************************************************************************************************************
+VALUES
+*********************************************************************************************************************************************************************
+
+***************************
+editable: Change these variables according to your needs
+***************************
+ClassiFaceTimeout:				sets the main trial duration of face classification trials. Must be equal to the duration of three scans of fMRI machine
+(ACTUALLY UNUSED)				(currently scan duration is 2500 ms, that is ClassiFaceTimeout must be 7500 ms)
+TWO VALUES ARE USED INSTEAD:
+
+ShowFaceTime:					sets the duration of face presentation. 
+SliderTime:						sets the duration of slider presentation, i.e. the time for evaluating the extent of the presented face similarity with the subject's own face.
+								Their sum must be equal to the duration of three scans of fMRI machine (currently scan duration is 2500 ms, that is the sum must be 7500 ms)
+
+
+Durations of resting periods, in milliseconds:
+
+PauseDuration					(should be 60000 ms = 1 minute)
+
+
+**************************
+updated at runtime;
+**************************
+PreStimInterval:					determines how long the focus stimulus is shown (after the "scan started" signal from fMRI machine) before the target stimulus (a photo) is presented.
+									actually, here the "focus stimulus" is a simple dark screen, the same as after the response of the subject after the previous stimulus.
+
+MeMorphShare, 
+FrMorphShare, 
+StMorphShare: 						represents a "share" (in percent) of the face in the shown morphed face (Me - for the own face of the subject, Fr - for the face of the subject's friend,
+									St - for the face of a stranger).
+
+ResponseForSubj						Represents a value for degree of similarity of the shown face with the Friend's face (in percent) selected by the subject on the slider.
+
+-----ClassiFaceLatency:					takes the latency of current response or timeout time
+-----									(required beause there are several variants of trials there response is possible)
+
+**************************
+
+
+<values>
+/PreStimInterval = 0
+/WaitedForSynchro = 0
+/ShowFaceTime = 2500
+/SliderTime = 5000
+/WhoIsSecondType = ""
+/PauseDuration = 30000
+/TrainNeeded = 0
+/TrainRepeatNeeded = 0
+/FirstFacePresented = 0
+/TestBlockNum = 0
+/TestTrialNum = 0
+/MeMorphShare = 0
+/FrMorphShare = 0
+/StMorphShare = 0
+/ResponseForSubj = 0
+</values>
+
+*********************************************************************************************************************************************************************
+
+
+*********************************************************************************************************************************************************************
+COUNTERS
+*********************************************************************************************************************************************************************
+
+<counter WhoIsSecondChoiceCounter>
+/items = ("Strang","Friend")
+/select = noreplace
+/selectionrate = trial
+</counter>
+
+<counter PreStimulusInterval>
+/ items = (100, 378, 656, 934, 1212, 1490, 1768, 2046, 2324) 
+/ select = noreplace
+/ selectionrate = trial
+</counter>
+Counter.PreStimulusInterval randomly selects the amount of time that defines the waiting period after receiving the synchro
+signal from fMRI scanner.
+Change the item list to suit your equipment settings.
+
+*********************************************************************************************************************************************************************
+
+
+*********************************************************************************************************************************************************************
+TEXTS
+*********************************************************************************************************************************************************************
+
+<text WhatHandText>
+/items = WHT
+/fontstyle = ("Arial", 4.80%, false, false, false, false, 5, 204)
+/size = (80%, 80%)
+/txcolor = grey
+/txbgcolor = transparent
+/hposition = 50%
+/vposition = 50%
+/halign = center
+/valign = center
+/hjustify = center
+/vjustify = center
+</text>
+<item WHT>
+/1 = "Укажите, в какой руке будет находиться пульт для ответов:~n~n~n
+нажмите L, если пульт будет в ЛЕВОЙ руке,~n~n
+нажмите R, если пульт будет в ПРАВОЙ руке."
+</item>
+
+<text TestOrTrainText>
+/items = TestOrTrain
+/fontstyle = ("Arial", 4.80%, false, false, false, false, 5, 204)
+/size = (80%, 80%)
+/txcolor = grey
+/txbgcolor = transparent
+/hposition = 50%
+/vposition = 50%
+/halign = center
+/valign = center
+/hjustify = center
+/vjustify = center
+</text>
+<item TestOrTrain>
+/1 = "нажмите ПРОБЕЛ, если нужно пройти тренировку,~n~n~n~n
+нажмите ENTER, чтобы перейти сразу к основному тесту."
+</item>
+
+<text RTOSTText>
+/items = RTOST
+/fontstyle = ("Arial", 4.80%, false, false, false, false, 5, 204)
+/size = (80%, 80%)
+/txcolor = grey
+/txbgcolor = transparent
+/hposition = 50%
+/vposition = 50%
+/halign = center
+/valign = center
+/hjustify = center
+/vjustify = center
+</text>
+<item RTOST>
+/1 = "Тренировка завершена~n~n~n
+нажмите ПРОБЕЛ, если тренировку нужно повторить,~n~n
+нажмите ENTER, чтобы перейти к основному тесту."
+</item>
+
+*********************************************************************************************************************************************************************
+
+
+
+*********************************************************************************************************************************************************************
+PICTURES
+*********************************************************************************************************************************************************************
+
+<picture FriendFace>
+/ items = FriendFacePhotos
+/ select = noreplace
+/ hposition = 50%
+/ vposition = 50%
+/ size = (875, 1050)
+/ halign = center
+/ valign = center
+</picture>
+<item FriendFacePhotos>
+/ 1="MeFr_00.png"
+/ 2="MeFr_02.png"
+/ 3="MeFr_04.png"
+/ 4="MeFr_06.png"
+/ 5="MeFr_08.png"
+/ 6="MeFr_10.png"
+</item>
+
+<picture StrangFace>
+/ items = StrangFacePhotos
+/ select = noreplace
+/ hposition = 50%
+/ vposition = 50%
+/ size = (875, 1050)
+/ halign = center
+/ valign = center
+</picture>
+<item StrangFacePhotos>
+/ 1="MeSt_00.png"
+/ 2="MeSt_02.png"
+/ 3="MeSt_04.png"
+/ 4="MeSt_06.png"
+/ 5="MeSt_08.png"
+/ 6="MeSt_10.png"
+</item>
+
+<picture Train>
+/ items = TrainPhotos
+/ select = noreplace
+/ hposition = 50%
+/ vposition = 50%
+/ size = (875, 1050)
+/ halign = center
+/ valign = center
+</picture>
+<item TrainPhotos>
+/ 1="MeFr_00.png"
+/ 2="MeFr_10.png"
+/ 3="MeSt_00.png"
+/ 4="MeSt_10.png"
+</item>
+
+<picture DarkPause>
+/ items = ("DarkPause.png")
+/ hposition = 50%
+/ vposition = 50%
+/ halign = center
+/ valign = center
+</picture>
+
+---- Unused here ----
+picture MayRespond>
+/ items = ("MayRespond.png")
+/ hposition = 50%
+/ vposition = 50%
+/ halign = center
+/ valign = center
+/picture>
+---- ----------------- ----
+
+*********************************************************************************************************************************************************************
+FIGURES
+*********************************************************************************************************************************************************************
+
+<shape focus>
+/color = (0, 0, 0)
+/height = 100%
+/width = 100%
+/hposition = 50%
+/vposition = 50%
+</shape>
+
+<shape focusPause>
+/color = (127, 127, 127)
+/height = 100%
+/width = 100%
+/hposition = 50%
+/vposition = 50%
+</shape>
+
+
+<shape Erase>
+/color = (0, 0, 0)
+/height = 100%
+/width = 100%
+/hposition = 50%
+/vposition = 50%
+</shape>
+
+<shape Points>
+/height = 0.3%
+/width = 0.2%
+/color = (255,255,255)
+/hposition = 0%
+/vposition = 99.7%
+/halign = left
+/valign = center
+</shape>
+Shape Points is a mark in the corner of the screen, which can be used for synchronizing EEG with screen events.
+But it is not necessary for fMRI and currently is almost invisible (about 5x5 pixels).
+To make it usable for EEG marks set height to about 3%, width - to about 2%, and vposition to 97% (100 - height).
+
+*********************************************************************************************************************************************************************
+
+
+*********************************************************************************************************************************************************************
+MARKS for EEG by LPT Port
+*********************************************************************************************************************************************************************
+Here the marks are defined that are to be send to BrainVision EEG machine using LPT port
+
+<port MarkWaitingMRI>
+	/ port = LPT3
+	/ subport = data
+	/ items = ("01100011")
+	</port>
+Marks beginning of waiting for MRI frame start mark. S99 on BrainVision.
+
+<port MarkMRIframeStart>
+	/ port = LPT3
+	/ subport = data
+	/ items = ("00001100")
+	</port>	
+Marks MRI frame start mark. S12 on BrainVision.
+
+
+
+<port MarkFriend>
+	/ port = LPT3
+	/ subport = data
+	/ items = ("00001110")
+	</port>
+
+<port MarkStrang>
+	/ port = LPT3
+	/ subport = data
+	/ items = ("00001101")
+	</port>
+Marks start of a face presentation. S14 on BrainVision for Friend face, S13 for Strang face.
+
+
+
+<port MarkMGFriend>
+	/ port = LPT3
+	/ subport = data
+	/ items = FriendMG
+	/ select = FriendFace
+	</port>
+<item FriendMG>
+	/ 1="00000001"
+	/ 2="00000011"
+	/ 3="00000101"
+	/ 4="00000111"
+	/ 5="00001001"
+	/ 6="00001011"
+</item>
+
+<port MarkMGStrang>
+	/ port = LPT3
+	/ subport = data
+	/ items = StrangMG
+	/ select = StrangFace
+	</port>
+<item StrangMG>
+	/ 1="00000001"
+	/ 2="00000011"
+	/ 3="00000101"
+	/ 4="00000111"
+	/ 5="00001001"
+	/ 6="00001011"
+</item>
+
+MarkMGStrang, MarkMGFriend and MarkMGt mark face presentations (in current version the script sends these marks at the end of the face presentation).
+Marks are presented as S1, S3, s5, s7, s9, S11 on BrainVision for 6 Morphing Grades (1, 3, 5, 7, 9, 11, there 1 corresponds to "Me"(100%), 11 - "Not Me"(0%) and
+3 to 9 - to morphed faces: 3 - 80% of "Me", 5 - 60% of "Me", 7 - 40% of "Me", 9 - 20% of "Me",).
+Two sets for the same marks are made because the correspondence is required to the certain face file, and there are two sets of the face files.
+
+<port MarkMGff>
+	/ port = LPT3
+	/ subport = data
+	/ items = ffMG
+	/ select = Train
+	</port>
+<item ffMG>
+	/ 1="00000001"
+	/ 2="00001011"
+	/ 3="00000001"
+	/ 4="00001011"
+</item>
+MarkMGff marks the type of face from the training set, which is used for the first trial in the block (1 corresponds to "Me" and 11 - "Not Me").
+
+UNUSED - No face recognition marks are put because the moment of decision is unclear when using slider
+******
+port MarkMeStrang>
+	/ port = LPT3
+	/ subport = data
+	/ items = ("01001001")
+	/port>
+port MarkNmStrang>
+	/ port = LPT3
+	/ subport = data
+	/ items = ("01010011")
+	/port>
+port MarkFriendMe>
+	/ port = LPT3
+	/ subport = data
+	/ items = ("01001010")
+	/port>
+port MarkNfMe>
+	/ port = LPT3
+	/ subport = data
+	/ items = ("01010100")
+	/port>
+Marks face recognition.
+S73 and S83 on BrainVision for Strang[er] faces confirmed and rejected by subject to be "Me" correspondingly (that is, 7 corresponds to "Me" and 8 to "Not Me", and 3 corresponds to Strang[er]). 
+S74 and S84 on BrainVision for Friend faces confirmed and rejected by subject to be "Me" correspondingly (that is, 7 corresponds to "Me" and 8 to "Not Me", and 4 corresponds to Friend).
+*******
+
+*********************************************************************************************************************************************************************
+TRIALS
+*********************************************************************************************************************************************************************
+
+***************
+Trial for recording what hand will be used for responding.
+
+<trial WhatHand>
+/stimulustimes = [0=WhatHandText]
+/inputdevice = keyboard
+/validresponse = (19, 38)
+/recorddata = true
+/posttrialpause = 1500
+</trial>
+
+Possible responses are R (code 19) for the right hand and L (code 38) for the left hand.
+***************
+
+
+***************
+Trials for training the subject to press buttons in the MRI scanner 
+
+<trial Training>
+
+/ ontrialbegin = [values.MeMorphShare = 0]
+/ ontrialbegin = [values.FrMorphShare = 0]
+/ ontrialbegin = [values.StMorphShare = 0]
+/ ontrialbegin = [values.ResponseForSubj = 0]
+/ stimulustimes = [0=Train]
+/ validresponse = (noresponse)
+/ recorddata = true
+/ timeout = values.ShowFaceTime
+/ ontrialend = [if (picture.Train.currentindex == 4) values.StMorphShare = 100]
+/ ontrialend = [if (picture.Train.currentindex == 2) values.FrMorphShare = 100]
+/ ontrialend = [if (picture.Train.currentindex == 1 || picture.Train.currentindex == 3) values.MeMorphShare = 100]
+/ branch = [surveypage.MorphSliderPage]
+</trial>
+
+Scancodes in ITC (Novosibirsk): index finger - 48 (L, corresponds to letter "B" on keyboard), 46 (R, corresponds to letter "C")
+thumb - 30 (L, corresponds to letter "A"), 32 (R, corresponds to letter "D")
+And PowerToys converts "B" and "A" to "->" and "<-". It is done for using slider, but lasts during the whole test.
+
+MorphSliderPage surveypage element is below all trial elements
+
+<trial StartTestOrDoTrainFirst>
+/stimulustimes = [0=TestOrTrainText]
+/inputdevice = keyboard
+/validresponse = (28, 57)
+/correctresponse = (28)
+/recorddata = false
+/ontrialend = [if (trial.StartTestOrDoTrainFirst.correct == 1) values.TrainNeeded = 0]
+/ontrialend = [if (trial.StartTestOrDoTrainFirst.correct == 0) values.TrainNeeded = 1]
+/posttrialpause = 500
+</trial>
+In this trial you can choose to start training or proceed directly to the test if training is suggested unnecessary.
+SPACE key (code 57) is set for the training and
+ENTER key (code 28) is set for starting test after a pause.
+
+<trial RepeatTrainOrStartTest>
+/stimulustimes = [0=RTOSTText]
+/inputdevice = keyboard
+/validresponse = (28, 57)
+/correctresponse = (28)
+/recorddata = false
+/ontrialend = [if (trial.RepeatTrainOrStartTest.correct == 1) values.TrainRepeatNeeded = 0]
+/ontrialend = [if (trial.RepeatTrainOrStartTest.correct == 0) values.TrainRepeatNeeded = 1]
+/posttrialpause = 500
+</trial>
+In this trial you can choose to repeat training if it was suggested unsuccessful.
+SPACE key (code 57) is set for repetition of the training and
+ENTER key (code 28) is set for starting test after a pause.
+***************
+
+***************
+Trials for recording background MRI before and after the test session. Number of MRI frames equals to the number of "GetMRImarkForFon" trials
+set in "FonDo" and "FonPo" blocks correspondingly.
+
+<trial GetMRImarkForFon>
+/ stimulustimes = [0 = focus]
+/ inputdevice = com3
+/ validresponse = (anyresponse)
+/ recorddata = false
+/ branch = [trial.Fon]
+</trial>
+<trial Fon>
+/ stimulustimes = [0 = focus]
+/ validresponse = (noresponse)
+/ trialduration = 2000
+/ recorddata = true
+</trial>
+
+For fMRI mode this string must be put into GetMRImarkForFon trial:
+ "inputdevice = com3"
+For the test mode "trialduration = 99" string should be put instead of it
+(in the test mode this trial just waits for 99 ms)
+***************
+
+***************
+Trials for getting MRI mark and waiting random interval within frame.
+
+<trial getMRImark>
+/  stimulustimes = [0 = focus, MarkWaitingMRI]
+/ ontrialbegin = [values.ResponseForSubj = 0]
+/ inputdevice = com3
+/ validresponse = (anyresponse)
+/ recorddata = false
+/ branch = [if (values.FirstFacePresented == 0) trial.333msForFirstFace]
+/ branch = [if (values.FirstFacePresented == 1) trial.WhoIsSecondChoice]
+</trial>
+For fMRI mode this string must be put into getMRImark trial:
+ "inputdevice = com3"
+For the test mode "trialduration = 99" string should be put instead of it
+(in the test mode this trial just waits for 99 ms)
+
+***************
+
+<trial 333msForFirstFace>
+/ ontrialbegin = [values.WaitedForSynchro = trial.getMRImark.latency]
+/ ontrialbegin = [values.PreStimInterval = 333]
+/ ontrialbegin = [values.MeMorphShare = 0]
+/ ontrialbegin = [values.FrMorphShare = 0]
+/ ontrialbegin = [values.StMorphShare = 0]
+/ ontrialbegin = [values.ResponseForSubj = 0]
+/validresponse = (noresponse)
+/recorddata = false
+/stimulustimes = [0 = focus, MarkMRIframeStart]
+/ trialduration = 333
+/ branch = [trial.FirstFace]
+</trial>
+This trial is added to make the script structure for the first trial the same as in other trials
+(that is, it's analogous to WhoIsSecondChoice trial although there is no need in choosing WhoIsSecond and delay here).
+
+***************
+Trials for selecting WhoIsSecond and Morphing Level of faces, demonstrating faces and recording responses
+
+<trial WhoIsSecondChoice>
+/ ontrialbegin = [values.WhoIsSecondType = counter.WhoIsSecondChoiceCounter.selectedvalue]
+/ ontrialbegin = [values.WaitedForSynchro = trial.getMRImark.latency]
+/ ontrialbegin = [values.PreStimInterval = counter.PreStimulusInterval.selectedvalue]
+/ ontrialbegin = [values.TestTrialNum = values.TestTrialNum + 1]
+/ ontrialbegin = [values.MeMorphShare = 0]
+/ ontrialbegin = [values.FrMorphShare = 0]
+/ ontrialbegin = [values.StMorphShare = 0]
+/ ontrialbegin = [values.ResponseForSubj = 0]
+/ validresponse = (noresponse)
+/ recorddata = false
+/ stimulustimes = [0 = focus, MarkMRIframeStart]
+/ trialduration = values.PreStimInterval
+/ branch = [if (values.WhoIsSecondType =="Strang") trial.Strang]
+/ branch = [if (values.WhoIsSecondType =="Friend") trial.Friend]
+</trial>
+
+Add "Points" to stimulustimes 0 if you need screen corner mark
+
+<trial Friend>
+/ stimulustimes = [0 = FriendFace, MarkFriend, Points]
+/ recorddata = true
+/ validresponse = (noresponse)
+/ trialduration = values.ShowFaceTime
+/ ontrialend = [values.FrMorphShare = 10 * 2 * (picture.FriendFace.currentindex - 1)]
+/ ontrialend = [values.MeMorphShare = 10 * 2 * (6 - picture.FriendFace.currentindex)]
+/ branch = [surveypage.MorphSliderPage]
+</trial>
+
+<trial Strang>
+/ stimulustimes = [0 = StrangFace, MarkStrang, Points]
+/ validresponse = (noresponse)
+/ trialduration = values.ShowFaceTime
+/ ontrialend = [values.StMorphShare = 10 * 2 * (picture.StrangFace.currentindex - 1)]
+/ ontrialend = [values.MeMorphShare = 10 * 2 * (6 - picture.StrangFace.currentindex)]
+/ branch = [surveypage.MorphSliderPage]
+</trial>
+
+<trial FirstFace>
+/ stimulustimes = [0 = Train, MarkMGff, Points]
+/ recorddata = true
+/ validresponse = (noresponse)
+/ trialduration = values.ShowFaceTime
+/ ontrialend = [values.FirstFacePresented = 1]
+/ ontrialend = [if (picture.Train.currentindex == 4) values.StMorphShare = 100]
+/ ontrialend = [if (picture.Train.currentindex == 2) values.FrMorphShare = 100]
+/ ontrialend = [if (picture.Train.currentindex == 1 || picture.Train.currentindex == 3) values.MeMorphShare = 100]
+/ branch = [surveypage.MorphSliderPage]
+</trial>
+Trial FirstFace looks as the usual trial for the subject and its data are recorded to the experiment protocol,
+but been the first in the block it is to be excluded from the analysis.
+It uses photos from the training sequence ("Me", "Friend" and "Strang[er]").
+
+Scancodes in ITC (Novosibirsk): index finger - 48 (L, corresponds to letter "B" on keyboard), 46 (R, corresponds to letter "C")
+thumb - 30 (L, corresponds to letter "A"), 32 (R, corresponds to letter "D")
+And PowerToys converts "B" and "A" to "->" and "<-". It is done for using slider, but lasts during the whole test.
+
+For EEG-fMRI: "Points" are added to stimulustimes 0 to make a screen corner mark. If this mark is not needed, exclude it.
+
+***************
+
+***************
+This is an additional trial added to the end of the test blocks.
+Its purpose is to let MRI machine finish the last TR before the Preinstructions screen for the PauseBlock appears.
+
+<trial WaitingForEndOfTR>
+/ ontrialbegin = [values.WaitedForSynchro = 0]
+/ ontrialbegin = [values.PreStimInterval = 0]
+/ ontrialbegin = [values.TestTrialNum = 0]
+/ ontrialbegin = [values.ResponseForSubj = 0]
+/ stimulustimes = [0 = focus]
+/ trialduration = 2420
+/ validresponse = (noresponse)
+</trial>
+
+***************
+
+***************
+Trial for a pause of a preset duration
+
+<trial Pause>
+/ stimulustimes = [0 = focusPause]
+/ trialduration = Values.PauseDuration
+/ validresponse = (noresponse)
+</trial>
+
+***************
+
+***************
+Trial for the final screen
+
+<trial EndThanks>
+/trialduration = 1000
+</trial>
+***************
+
+
+*********************************************************************************************************************************************************************
+SLIDER for evaluating the extent of presented face similarity to the subject's own face.
+*********************************************************************************************************************************************************************
+
+<surveypage MorphSliderPage>
+/ caption = "~tОцените, насколько схожим с Вами было показанное изображение  "
+/ fontstyle = ("Arial", 4.5%, false, false, false, false, 5, 204)
+/ showbackbutton = false
+/ showpagenumbers = false
+/ showquestionnumbers = false
+/ finishlabel = "-"
+/ nextbuttonposition = (50%, 100%) 
+/ questions = [1=MorphSlider]
+/ timeout = values.SliderTime
+/ ontrialend = [values.ResponseForSubj = 10 * (surveypage.MorphSliderPage.response - 1)]
+</surveypage>
+
+<slider MorphSlider>
+/ caption = "0% - точно не я,~t~t~t 100% - точно я ~n~n"
+/ labels = ("0%", "10%", "20%", "30%", "40%", "50%","60%", "70%","80%", "90%","100%")
+/ fontstyle = ("Arial", 4.5%, false, false, false, false, 5, 204)
+/ range = (1, 11)
+/ position = (15%, 35%) 
+/ slidersize = (70%, 10%)
+/ showtooltips = false
+</slider>
+
+
+*********************************************************************************************************************************************************************
+
+
+*********************************************************************************************************************************************************************
+INSTRUCTIONS
+*********************************************************************************************************************************************************************
+<instruct>
+/fontstyle = ("Arial", 3.80%, false, false, false, false, 5, 204)
+/windowsize = (90%, 90%)
+/screencolor = (150, 150, 150)
+/nextkey = (28, 57)
+/lastlabel = "---"
+/inputdevice = keyboard
+</instruct>
+The next keys for instructions are the SPACE (28) and ENTER (57), both operated by the experimenter.
+If subject-operated next keys are to be available, 30 and 48 should be added to the "nextkey" string, which correspond to
+"C" (right button in fMRI scaner) and "B" (left button in fMRI scaner),
+
+<page TrainingInstr>
+В этом эксперименте Вам будут показываться фотографии и нужно будет определить насколько похоже на Вас показанное изображение.
+~n
+Каждая фотография будет показываться в течение двух с половиной секунд.
+~n
+В это время ничего делать не нужно.
+~n~n
+Сразу после фотографии на экране появится шкала для оценки.
+~n
+Оценка будет производиться по шкале от 0 (совсем не похоже Вас)
+~n
+до 100 (точно Вы) процентов с помощью бегунка.
+~n~n
+Чтобы переместить бегунок ВПРАВО - нажимайте кнопку,
+~n расположенную под УКАЗАТЕЛЬНЫМ ПАЛЬЦЕМ,
+~n~n
+Чтобы переместить бегунок ВЛЕВО - нажимайте кнопку, 
+~n расположенную под БОЛЬШИМ ПАЛЬЦЕМ
+~n~n
+На оценку дается пять секунд; зачтена будет оценка, выставленная в момент окончания этого времени.
+~n~n
+Сейчас можно будет пройти тренировку или перейти сразу к тесту.
+</page>
+Scancodes in ITC (Novosibirsk): index finger - 48 (L), 46 (R)
+thumb - 30 (L), 32 (R)
+
+<page AfterTrainingInstr>
+~n
+В течение ближайшего времени постарайтесь отдохнуть, ни о чем не думать и смотрите, пожалуйста, прямо перед собой.
+~n~n~n
+После отдыха начнется тест.
+</page>
+
+
+<page PauseScreen>
+~n
+Блок <%values.TestBlockNum%> завершен.
+~n
+В течение следующей минуты постарайтесь отдохнуть, ни о чем не думать и смотрите, пожалуйста, прямо перед собой.
+~n
+После отдыха тест продолжится.
+</page>
+
+
+<page EndThanksText>
+~n~n
+     Тест завершён,
+~n Спасибо за участие!
+</page>
+
+
+
+
+*********************************************************************************************************************************************************************
+BLOCKS
+*********************************************************************************************************************************************************************
+
+<block RecHand>
+/trials = [1=WhatHand]
+/recorddata = true
+</block>
+
+<block AskAboutTraining>
+/ preinstructions = (TrainingInstr)
+/ trials = [1=StartTestOrDoTrainFirst]
+/ recorddata = true
+/ branch = [if (values.TrainNeeded==0) block.AfterTraining]
+/ branch = [if (values.TrainNeeded==1) block.TrainingBlock]
+/ onblockend = [values.ResponseForSubj = 0]
+</block>
+
+<block TrainingBlock>
+/ trials = [1-8=Training; 9=RepeatTrainOrStartTest]
+/ recorddata = true
+/ branch = [if (values.TrainRepeatNeeded==0) block.AfterTraining]
+/ branch = [if (values.TrainRepeatNeeded==1) block.TrainingBlock]
+/ onblockend = [values.ResponseForSubj = 0]
+</block>
+
+<block AfterTraining>
+/recorddata = false
+/preinstructions = (AfterTrainingInstr)
+</block>
+
+-------UNUSED---------
+block FonDo>
+/trials = [1-12=GetMRImarkForFon]
+/recorddata = true
+/block>
+-------UNUSED---------
+
+<block MorFaces>
+/onblockbegin = [values.TestBlockNum = values.TestBlockNum + 1]
+/onblockbegin = [values.TestTrialNum = 0]
+/onblockbegin = [values.FirstFacePresented = 0]
+/trials = [1-45=GetMRImark; 46=WaitingForEndOfTR]
+/recorddata = true
+/onblockend = [values.ResponseForSubj = 0]
+</block>
+
+<block PauseBlock>
+/trials = [1=Pause]
+/recorddata = false
+/preinstructions = (PauseScreen)
+</block>
+
+-------UNUSED---------
+block FonPo>
+/onblockbegin = [values.TestBlockNum = 0]
+/trials = [1-11=GetMRIMarkForFon]
+/recorddata = true
+/block>
+There are 11 trials here instead of 12 because trial WaitingForEndOfTR is added at the end of MorFaces block, which makes one MRI signal passed before FonPo block starts.
+Actual duration of Fon for the subject is 12 TRs.
+-------UNUSED---------
+
+<block End>
+/trials = [1=EndThanks]
+/recorddata = false
+/preinstructions = (EndThanksText)
+</block>
+
+*********************************************
+
+*********************************************************************************************************************************************************************
+
+
+*********************************************************************************************************************************************************************
+EXPERIMENT
+*********************************************************************************************************************************************************************
+
+<expt>
+/blocks = [1=RecHand; 2=AskAboutTraining; 3=MorFaces; 4=PauseBlock; 5=MorFaces; 6=PauseBlock; 7=MorFaces; 8=End]
+</expt>
+
+
+*******************
