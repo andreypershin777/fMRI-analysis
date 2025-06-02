@@ -1633,7 +1633,7 @@ def get_thresholds_dict(K_list, t_values, nX=None, nY=None, nZ=None, nR=None, nT
     t_values_list = []
     for v in range(t_values.shape[0]):
         for r in range(t_values.shape[1]):
-            t_values_list.append(t_values[v, r])
+            t_values_list.append(abs(t_values[v, r]))
     t_values_list_sorted = sorted(t_values_list)
 
     min_value = min(t_values_list)
@@ -1648,9 +1648,28 @@ def get_thresholds_dict(K_list, t_values, nX=None, nY=None, nZ=None, nR=None, nT
         #dict_thresholds['numb'][K] = []
         #dict_thresholds['value'][K] = []
         #dict_random_thresholds[K] = []
+        j = 0
         for i in range(1, K+1):
             if mode == 'numb':
-                dict_thresholds[K].append(t_values_list_sorted[i * n_elem])
+                curr_thresh = t_values_list_sorted[j + n_elem]
+                if i == 1 and curr_thresh > min(t_values_list_sorted):
+                    dict_thresholds[K].append(t_values_list_sorted[j + n_elem])
+                    j = j + n_elem
+                elif i == 1 and curr_thresh == min(t_values_list_sorted):
+                    j = i * n_elem
+                    while t_values_list_sorted[j] == min(t_values_list_sorted):
+                        j += 1
+                    dict_thresholds[K].append(t_values_list_sorted[j])
+                    n_elem = (t_values.shape[0] * t_values.shape[1] - j) // (K - i + 1)
+                elif curr_thresh > dict_thresholds[K][-1]:
+                    dict_thresholds[K].append(t_values_list_sorted[j + n_elem])
+                    j = j + n_elem
+                elif curr_thresh == dict_thresholds[K][-1]:
+                    j = j + n_elem
+                    while t_values_list_sorted[j] == dict_thresholds[K][-1]:
+                        j += 1
+                    dict_thresholds[K].append(t_values_list_sorted[j])
+                    n_elem = (t_values.shape[0] * t_values.shape[1] - j) // (K - i + 1)
             if mode == 'value':
                 dict_thresholds[K].append(min_value + (max_value - min_value) * i / K)
         #plt.hist(t_values_list_sorted, bins=100)
@@ -1674,7 +1693,7 @@ def get_t_groups(K_list, dict_thresholds, t_value, nX=None, nY=None, nZ=None, nR
                     
                     #Нулевая группа - все, что меньше нулевого порога
                     t_value_voxel_groups[K][v][n_group] = len([t for t in t_value[v] \
-                                                                    if (t < dict_thresholds[K][n_group])])
+                                                                    if (abs(t) < dict_thresholds[K][n_group])])
                     #t_value_voxel_groups['numb'][K][v][n_group] = len([t for t in t_value[v] \
                     #                                                 if (t < dict_thresholds['numb'][K][n_group])])
                     #t_value_voxel_groups['value'][K][v][n_group] = len([t for t in t_value[v] \
@@ -1683,7 +1702,7 @@ def get_t_groups(K_list, dict_thresholds, t_value, nX=None, nY=None, nZ=None, nR
                     
                     #K-я группа - все, что больше (K-1)-го порога
                     t_value_voxel_groups[K][v][n_group] = len([t for t in t_value[v] \
-                                                                     if (t >= dict_thresholds[K][n_group - 1])])
+                                                                     if (abs(t) >= dict_thresholds[K][n_group - 1])])
                     #t_value_voxel_groups['numb'][K][v][n_group] = len([t for t in t_value[v] \
                     #                                                 if (t > dict_thresholds['numb'][K][n_group - 1])])
                     #t_value_voxel_groups['value'][K][v][n_group] = len([t for t in t_value[v] \
@@ -1692,8 +1711,8 @@ def get_t_groups(K_list, dict_thresholds, t_value, nX=None, nY=None, nZ=None, nR
                     
                     #i-я группа - от (i-1)-го до i-го порога
                     t_value_voxel_groups[K][v][n_group] = len([t for t in t_value[v] \
-                                                                     if (t >= dict_thresholds[K][n_group - 1] \
-                                                                         and t < dict_thresholds[K][n_group])])
+                                                                     if (abs(t) >= dict_thresholds[K][n_group - 1] \
+                                                                         and abs(t) < dict_thresholds[K][n_group])])
                     #t_value_voxel_groups['numb'][K][v][n_group] = len([t for t in t_value[v] \
                     #                                                 if (t > dict_thresholds['numb'][K][n_group - 1] \
                     #                                                     and t < dict_thresholds['numb'][K][n_group])])
@@ -2184,7 +2203,7 @@ def get_P_AI_K_dict(K_list, P_A_dict, P_I_dict, nX=None, nY=None, nZ=None, \
 
 
 def interpolate_plot(K_list, P_AI_K_dict, lamda_dict, need_plot=True, nX=None, nY=None, \
-                     nZ=None, nR=None, nT=None, nS=None, mode='value', contrast_name=''):
+                     nZ=None, nR=None, nT=None, nS=None, mode='value', contrast_name='', way='', save_path=None):
     best_P_I = {}
     best_P_A = {}
     P_Ah = {}
@@ -2207,17 +2226,20 @@ def interpolate_plot(K_list, P_AI_K_dict, lamda_dict, need_plot=True, nX=None, n
         best_index, best_Kappa = max(enumerate(Kappah), key=lambda pair: pair[1])
         best_P_I[K] = P_Ih[K][best_index]
         best_P_A[K] = P_Ah[K][best_index]
+        
+        fig = plt.figure(figsize=(5, 5))
+        plt.plot(P_Ih[K], P_Ah[K], label="Байес")
+        plt.plot(P_Ih[K], Kappah, label="Каппа-функция")
+        plt.scatter(best_P_I[K], best_P_A[K], label='Рабочая точка')
+        plt.scatter(P_I_list, P_A_list, label='Исходные точки')
+        plt.title(f"ROC-кривая для K = {K}, contrast = {contrast_name}, way = {way}")
+        plt.xlabel('P_I')
+        plt.ylabel('P_A')
+        plt.legend()
         if need_plot:
-            fig = plt.figure(figsize=(5, 5))
-            plt.plot(P_Ih[K], P_Ah[K], label="Байес")
-            plt.plot(P_Ih[K], Kappah, label="Каппа-функция")
-            plt.scatter(best_P_I[K], best_P_A[K], label='Рабочая точка')
-            plt.scatter(P_I_list, P_A_list, label='Исходные точки')
-            plt.title(f"ROC-кривая для K = {K}, contrast = {contrast_name}")
-            plt.xlabel('P_I')
-            plt.ylabel('P_A')
-            plt.legend()
             plt.show()
+        else:
+            plt.savefig(os.path.join(save_path, 'ROC_'+contrast_name+'_'+way+'_' + str(K) + '.png'))
     return best_P_I, best_P_A, P_Ih, P_Ah
 
 
@@ -2231,11 +2253,36 @@ def get_Kappa(P_I, P_A, lamda, nX=None, nY=None, nZ=None, \
     kappa = (p0 - pC) / (1 - pC)
     return kappa
 
+def check_swap(K, lamda, P_AI_K_dict, way):
+    if way == 'lamda':
+        return lamda, P_AI_K_dict
+    P_A_observed = [P_AI_K_dict[k][0] for k in range(len(P_AI_K_dict))]
+    P_I_observed = [P_AI_K_dict[k][1] for k in range(len(P_AI_K_dict))]
+    print(P_A_observed)
+    print(P_I_observed)
+    E, R, P_I_smoothed, P_A_smoothed = get_curve(P_A_observed, P_I_observed)
+    step = 1 / (len(P_A_observed) - 1)
+    straight_auc = 0
+    forward_auc = 0
+    for i in range(1, len(P_A_smoothed)):
+        straight_auc += (P_I_smoothed[i] - P_I_smoothed[i-1]) * P_A_smoothed[i]
+        forward_auc += (P_A_smoothed[i] - P_A_smoothed[i-1]) * P_I_smoothed[i]
+    if straight_auc >= forward_auc:
+        print('Оставили как есть,', straight_auc, '>', forward_auc)
+        return lamda, P_AI_K_dict
+    else:
+        new_list = []
+        print('Изменили,', straight_auc, '<', forward_auc)
+        for i in range(len(P_A_observed)):
+            new_list.append((P_I_observed[i], P_A_observed[i]))
+        return 1-lamda, new_list
+
 
 
 
 def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
-                        nR=None, nT=None, nS=None, mode='value', way='lamda', contrast_name = ''):
+                        nR=None, nT=None, nS=None, mode='value', way='lamda', \
+                            contrast_name = '', save_path=None, need_plot=True):
     final_thresholds = {}
     #final_thresholds['value'] = {}
     #final_thresholds['numb'] = {}
@@ -2266,11 +2313,11 @@ def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
         lamda_dict[K] = lamda
         #lamda_dict['value'][K] = lamda_value
         #lamda_dict['numb'][K] = lamda_numb
-        print(f'K = {K}')
-        print('thresholds:', mode)
-        print('lamda', lamda)
-        print('P_A_k', P_A_list)
-        print('P_I_k', P_I_list)
+        #print(f'K = {K}')
+        #print('thresholds:', mode)
+        #print('lamda', lamda)
+        #print('P_A_k', P_A_list)
+        #print('P_I_k', P_I_list)
         #print('lamda_numb', lamda_numb)
         #print('P_A_numb', P_A_list_numb)
         #print('P_I_numb', P_I_list_numb)
@@ -2279,8 +2326,10 @@ def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
         #print('P_I_value', P_I_list_value)
     P_AI_K_dict = {}
     P_AI_K_dict = get_P_AI_K_dict(K_list, P_Ak_dict, P_Ik_dict, nX, nY, nZ, nR, nT, nS, mode)
-    print('P_AI_K_dict')
-    print(P_AI_K_dict)
+    for K in K_list:
+        lamda_dict[K], P_AI_K_dict[K] = check_swap(K, lamda, P_AI_K_dict[K], way)
+    #print('P_AI_K_dict')
+    #print(P_AI_K_dict)
     #P_AI_K_dict['value'] = get_P_AI_K_dict(K_list, P_A_dict['value'], P_I_dict['value'], nX, nY, nZ, nR, nT, nS)
     #P_AI_K_dict['numb'] = get_P_AI_K_dict(K_list, P_A_dict['numb'], P_I_dict['numb'], nX, nY, nZ, nR, nT, nS)
     
@@ -2300,7 +2349,8 @@ def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
     
 
     best_P_I, best_P_A, P_Ih, P_Ah = \
-    interpolate_plot(K_list, P_AI_K_dict, lamda_dict, True, nX, nY, nZ, nR, nT, nS, mode, contrast_name=contrast_name)
+    interpolate_plot(K_list, P_AI_K_dict, lamda_dict, need_plot, nX, nY, nZ, nR, nT, nS, mode, \
+                     contrast_name=contrast_name, way=way, save_path=save_path)
     #best_P_I, best_P_A['value'], P_Ih['value'], P_Ah['value'] = \
     #interpolate_plot(K_list, P_AI_K_dict['value'], lamda_dict['value'], True, nX, nY, nZ, nR, nT, nS)
     #best_P_I['numb'], best_P_A['numb'], P_Ih['numb'], P_Ah['numb'] = \
@@ -2352,8 +2402,8 @@ def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
         #threshold_next['numb'] = dict_thresholds['numb'][K][n_pare['numb']]
         #threshold_prev['value'] = dict_thresholds['value'][K][n_pare['value']-1]
         #threshold_next['value'] = dict_thresholds['value'][K][n_pare['value']]
-        koef = 0.5 * ((best_P_A[K] - pare_prev[1])/(pare_next[1] - pare_prev[1]) \
-                      + (best_P_I[K] - pare_prev[0])/(pare_next[0] - pare_prev[0]))
+        koef = ((best_P_A[K] - pare_prev[1]+ best_P_I[K] - pare_prev[0])\
+                      /(pare_next[0] - pare_prev[0] + pare_next[1] - pare_prev[1]))
         #koef['numb'] = 0.5 * ((best_P_A['numb'][K] - pare_prev['numb'][1])/(pare_next['numb'][1] - pare_prev['numb'][1]) \
         #              + (best_P_I['numb'][K] - pare_prev['numb'][0])/(pare_next['numb'][0] - pare_prev['numb'][0]))
         #koef['value'] = 0.5 * ((best_P_A['value'][K] - pare_prev['value'][1])/(pare_next['value'][1] - pare_prev['value'][1]) \
@@ -2368,6 +2418,7 @@ def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
 def get_reproducibility(K_list, final_thresholds, t_values, \
                         nX=None, nY=None, nZ=None, nR=None, nT=None, nS=None, mode='value'):
     #print(t_values.shape)
+    print(final_thresholds.keys())
     voxel_status_dict = {}
     for K in K_list:
         voxel_status_dict[K] = np.zeros((t_values.shape[0]))
@@ -2499,7 +2550,7 @@ def check_neighbours(data_array, x, y, z, nX=None, nY=None, nZ=None, nR=None, nT
 
 from scipy.special import logsumexp
 
-def EM_optimization(r, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=None, nR=None, nS=None, mode='lamda', lamda=0.02, n_repeats=100):
+def EM_optimization(r, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=None, nR=None, nS=None, mode='lamda', lamda=0.02, n_repeats=10):
     #lambda_dict = {}
     #P_A_dict = {}
     #P_I_dict = {}
@@ -2543,15 +2594,15 @@ def EM_optimization(r, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=
             P_I[i] /= sum_P_I
         if mode != 'lamda':
             lambda_ = sps.uniform.rvs(size=1, loc=0, scale=1)[0]
-        print('start_values rep', n_rep, ':')
-        print('P_A_start:')
-        print(P_A)
+        #print('start_values rep', n_rep, ':')
+        #print('P_A_start:')
+        #print(P_A)
         start_P_A.append(P_A)
-        print('P_I_start:')
-        print(P_I)
+        #print('P_I_start:')
+        #print(P_I)
         start_P_I.append(P_I)
-        print('lambda_start:')
-        print(lambda_)
+        #print('lambda_start:')
+        #print(lambda_)
         start_lambda.append(lambda_)
         #print('Начали оптимизацию')
         #print(r)
@@ -2631,12 +2682,12 @@ def EM_optimization(r, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=
             #print('lambda:', lambda_)
             #print('P_A:\n', P_A)
             #print('P_I:\n', P_I)
-        print('P_A:')
-        print(P_A)
-        print('P_I:')
-        print(P_I)
-        print('lambda:')
-        print(lambda_)
+        #print('P_A:')
+        #print(P_A)
+        #print('P_I:')
+        #print(P_I)
+        #print('lambda:')
+        #print(lambda_)
 
     best_P_A_list = solutions_P_A[0]
     best_P_I_list = solutions_P_I[0]
@@ -2662,11 +2713,11 @@ def EM_optimization(r, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=
     P_A = best_P_A_list
     P_I = best_P_I_list
 
-    print('Остановка ЕМ')
-    for i in range(len(f_obj_values)):
-        print(f'{i}-й запуск')
-        print('start:', start_f_values[i])
-        print('final:', f_obj_values[i])
+    #print('Остановка ЕМ')
+    #for i in range(len(f_obj_values)):
+    #    print(f'{i}-й запуск')
+    #    print('start:', start_f_values[i])
+    #    print('final:', f_obj_values[i])
     #print(f_obj_values)
     if n_iters != 0:
         print('Остановились на итерации', n_iters)
@@ -2761,7 +2812,8 @@ def get_map_array(K_list, voxel_status_dict, \
 
 
 def plot_map(voxel_status_array, t_values, x_list=None, y_list=None, z_list=None, \
-             nX=None, nY=None, nZ=None, nR=None, nT=None, nS=None, array_to_show=None, contrast_name='', mode='str'):
+             nX=None, nY=None, nZ=None, nR=None, nT=None, nS=None, \
+                array_to_show=None, contrast_name='', mode='str', save=True, way=None, auto_end=False):
     if contrast_name != '':
         contrast_line = '_' + contrast_name+' contrast'
     plot_slices = []
@@ -2818,9 +2870,10 @@ def plot_map(voxel_status_array, t_values, x_list=None, y_list=None, z_list=None
         plt.axis('off')
         plt.show()
 
-    while True:
+    while not auto_end:
         print(contrast_name)
-        slice_str = input(f'Введите срез формата x/y/z = n или end, contrast = ' + contrast_name + ': ')
+        print(way)
+        slice_str = input(f'Введите срез формата x/y/z = n или end:')
         if 'end' in slice_str:
             break
         
@@ -2891,6 +2944,10 @@ def computing(X_matrixes, patient_data_dict, contrasts, K_list, X2, voxels_list=
                         voxels_list.append(coord_voxel(x, y, z, nX, nY, nZ))
         t_values = {}
         T_values = {}
+        mean_beta_dict = {}
+        cov_beta_dict = {}
+        Omega_dict = {}
+        mu_dict = {}
         for contrast_name in contrasts.keys():
             t_values[contrast_name] = {}
             T_values[contrast_name] = {}
@@ -2916,6 +2973,10 @@ def computing(X_matrixes, patient_data_dict, contrasts, K_list, X2, voxels_list=
             #    print_matrix(X_list[i], 'X_list')
             #    print_vector(Y_list[i], 'Y_list')
             mean_beta, disp_beta, mu, Omega = EM_new(X_list, Y_list, X2, nX, nY, nZ, nR, nT, nS, max_iter=max_iter, voxel=i)
+            mean_beta_dict[v] = mean_beta.copy()
+            cov_beta_dict[v] = disp_beta.copy()
+            Omega_dict[v] = Omega.copy()
+            mu_dict[v] = mu.copy()
             tb = time.time()
             #print('EM за', tb-ta)
             #print(mean_beta.shape, disp_beta.shape)
@@ -2943,7 +3004,7 @@ def computing(X_matrixes, patient_data_dict, contrasts, K_list, X2, voxels_list=
         '''
         #print(is_serializable(t_values), is_serializable(T_values))
         #print(total_size(t_values), total_size(T_values))
-        return t_values, T_values
+        return t_values, T_values, mean_beta_dict, cov_beta_dict, Omega_dict, mu_dict
         #with tempfile.NamedTemporaryFile(delete=False, suffix='.npz', dir='.', prefix='resulf_', mode='wb') as f:
         #    np.savez(f, t_values=t_values, T_values=T_values)
         #    return f.name
@@ -3172,7 +3233,255 @@ class NpEncoder(json.JSONEncoder):
 #            print(voxel_coord(voxels[-1], nX, nY, nZ))
 #            print()
 
+def merge_fmri_scans(input_dir, output_file, file_pattern="*.nii", scans_numbers=None):
+    if scans_numbers is None:
+        scans_numbers = [i for i in range(148)]
+    """
+    Объединяет 3D NIfTI-файлы в один 4D-файл.
 
+    Параметры:
+    - input_dir: Папка с исходными файлами.
+    - output_file: Путь для сохранения 4D-файла (например, "merged_fmri.nii").
+    - file_pattern: Шаблон имен файлов (например, "sub-01_*.nii").
+    """
+    # Получаем список файлов, сортируем по именам
+    files = sorted([f for f in os.listdir(input_dir) if f.endswith('.nii') or f.endswith('.nii.gz')])
+    if not files:
+        raise ValueError("NIfTI-файлы не найдены!")
+
+    # Загружаем первый файл для получения заголовка и affine-матрицы
+    first_scan = nib.load(os.path.join(input_dir, files[0]))
+    header = first_scan.header.copy()
+    affine = first_scan.affine
+
+    # Собираем все данные в массив numpy
+    all_volumes = []
+    for i, file in enumerate(files):
+        if i in scans_numbers:
+            scan = nib.load(os.path.join(input_dir, file))
+            all_volumes.append(scan.get_fdata())
+
+    # Объединяем вдоль временной оси (4D)
+    merged_data = np.stack(all_volumes, axis=-1)
+
+    # Создаем новый 4D NIfTI-файл
+    new_img = nib.Nifti1Image(merged_data, affine, header)
+    nib.save(new_img, output_file)
+    print(f"Сохранено: {output_file} (формат: {merged_data.shape})")
+
+
+def make_log(patient_logs_path):
+    new_logs_dict = {}
+    logs_dict = load_patient_logs(patient_logs_path)
+    for run in logs_dict.keys():
+        logs_dict[run] = logs_dict[run].loc[(logs_dict[run].index % 2 == 0) & \
+        (logs_dict[run].index != 0) & (logs_dict[run].index != len(logs_dict) - 1)]
+        logs_dict[run] = logs_dict[run].reset_index(drop=True)
+
+    for run in logs_dict.keys():
+        data = {}
+        data['Onset'] = (logs_dict[run]['values.PreStimInterval']/1000 + 10 * logs_dict[run].index + 10)
+        data['Duration'] = np.array([2.5 for i in range(len(logs_dict[run]))])
+        data['Condition'] = logs_dict[run]['stimulusitem1']
+        new_logs_dict[run] = pd.DataFrame(data=data)
+        #display(new_logs_dict[run].head(5))
+    
+    #for run in logs_dict.keys():
+    #    #display(logs_dict[run].head(5))
+    return new_logs_dict
+
+
+def copy_struct(patient_data_path, new_patient_path, patient):
+    patient_struc_path = os.path.join(patient_data_path, 'structural')
+    list_dir = os.listdir(path=patient_struc_path)
+    scan = nib.load(os.path.join(patient_struc_path, list_dir[0]))
+    nib.save(scan, os.path.join(new_patient_path, patient, 'anat', 'T1.nii'))
+
+def change_logs_dict(patient_logs_dict, runs, patient):
+    nS=18
+    change_dict = {'FrMe_06.png': 'MeFr_04.png', 'FrMe_08.png': 'MeFr_02.png', 'FrMe_10.png': 'MeFr_00.png', \
+                   'FrMe_00.png': 'MeFr_10.png', 'FrMe_04.png': 'MeFr_06.png', 'FrMe_02.png': 'MeFr_08.png'}
+    logs_dict = patient_logs_dict
+    #for log in logs_dict.values():
+    #    print(log['stimulusitem1'])
+
+    for run in runs:
+        for ind in range(0, len(logs_dict[run])-1, 2):
+            logs_dict[run].loc[ind, 'values.ResponseForSubj'] = logs_dict[run].loc[ind+1, 'values.ResponseForSubj']
+            #print(logs_dict[run].drop(columns=['date', 'time', 'values.TestBlockNum', 'response', 'values.WaitedForSynchro', 'latency', 'blockcode', 'values.PreStimInterval']))
+        logs_dict[run] = logs_dict[run][(logs_dict[run].index % 2 == 0)  & \
+                                        (logs_dict[run]['values.TestTrialNum'] != 0)]
+    necessary_scans = {}
+    for run in runs:
+        images = logs_dict[run]['stimulusitem1'].values
+        for i in range(len(images)):
+            for key in change_dict.keys():
+                if images[i] == key:
+                    images[i] = change_dict[key]
+                    #print('Изменили', key, 'на', change_dict[key], 'в', run, 'в позиции', i)
+                    break
+        logs_dict[run].loc[:,'stimulusitem1'] = images
+
+
+    for run in runs:
+        images = logs_dict[run]['stimulusitem1'].values
+        for i in range(len(images)):
+            image = images[i].split('.')
+            trial_num = logs_dict[run]['values.TestTrialNum'].values[i]
+            n_trial = (trial_num - 1) // 12 + 1
+            new_part = '_' + str(n_trial)
+            #print(image)
+            images[i] = image[0] + new_part + '.' + image[1]
+
+    #logs_dict_common = logs_dict.copy()
+    #for run in runs:
+    #    logs_dict_common[run] = logs_dict_common[run][(logs_dict[run]['stimulusitem1'].str.contains('MeFr') | \
+    #                                        logs_dict[run]['stimulusitem1'].str.contains('FrMe'))]
+
+    for run in runs:
+        logs_dict[run] = logs_dict[run].loc[(logs_dict[run]['stimulusitem1'].str.contains('MeFr')) | \
+                                (logs_dict[run]['stimulusitem1'].str.contains('FrMe'))]
+    
+    images_order = []
+    for run in runs:
+        log = logs_dict[run]
+        images = log['stimulusitem1'].values
+        for image in images:
+            if image not in images_order:
+                images_order.append(image)
+    
+    for run in runs:
+        necessary_scans[run] = []
+        log = logs_dict[run]
+        images = log['stimulusitem1'].values
+        for image in images:
+            trial_number = log.loc[log['stimulusitem1'] == image, 'values.TestTrialNum'].values[0]
+            scans_numbers = [i for i in range(trial_number*4, trial_number*4 + 4)]
+            necessary_scans[run].extend(scans_numbers)
+            del scans_numbers
+    
+
+    #for run in runs:
+    #    print(logs_dict[run]['values.TestTrialNum'].values)
+    #    print(necessary_scans[run])
+
+    #images_order = [images[i] for i in range(0, len(images)-1, 2)]
+    #print(len(images_order), 'изображений в логе')
+    #print('images_order:\n', images_order)
+
+
+    
+
+    events = {}
+    #ids = [i//2+1 for i in range(0, len(log)-1, 2)]
+
+    for r, run in enumerate(runs):
+        log = logs_dict[run]
+        images_r = log['stimulusitem1'].values
+        #images_r = [images[i] for i in range(0, len(images)-1, 2)]
+        events[run] = np.zeros((4, nS))
+        gap_r = log['values.PreStimInterval'].values
+        #gap_r = [gap[i] for i in range(0, len(gap)-1, 2)]
+        for s in range(len(images_r)):
+            real_n = images_order.index(images_r[s])
+            #print(images_r[s], s, real_n)
+            gap = gap_r[s]
+            events[run][0][real_n] = real_n + 1
+            events[run][1][real_n] = s * 10 + gap/1000
+            events[run][2][real_n] = 2.5
+            events[run][3][real_n] = 1
+        for s in range(len(images_order)):
+            if events[run][0][s] == 0:
+                events[run][0][s] = s + 1
+                events[run][1][s] = -1
+                events[run][2][s] = -1
+                events[run][3][s] = 0
+    new_logs_dict = {}
+    for run in runs:
+        data_dict = {}
+        data_dict['onset'] = events[run][1]
+        data_dict['duration'] = events[run][2]
+        #print(logs_dict[runs[0]].columns)
+        data_dict['name'] = logs_dict[runs[0]]['stimulusitem1'].values
+        new_logs_dict[run] = pd.DataFrame(data=data_dict)
+    print('patient =', patient)
+    for run in runs:
+        print('run =', run)
+        print(logs_dict[run]['values.TestTrialNum'].values)
+        print(necessary_scans[run])
+        print(new_logs_dict[run])
+
+    return new_logs_dict, necessary_scans
+
+
+def make_data_for_SPM(patient_data_path, patient_logs_path, patient, new_patient_path, runs):
+    patient_logs_dict = load_patient_logs(patient_logs_path)
+    logs_dict, necessary_scans = change_logs_dict(patient_logs_dict, runs, patient)
+    images_order = patient_logs_dict[runs[0]][patient_logs_dict[runs[0]]['stimulusitem1'].str.contains('')]
+    if not os.path.exists(os.path.join(new_patient_path, patient)):
+        os.mkdir(os.path.join(new_patient_path, patient))
+
+    if not os.path.exists(os.path.join(new_patient_path, patient, 'func')):
+        os.mkdir(os.path.join(new_patient_path, patient, 'func'))
+
+    if not os.path.exists(os.path.join(new_patient_path, patient, 'events')):
+        os.mkdir(os.path.join(new_patient_path, patient, 'events'))
+
+    if not os.path.exists(os.path.join(new_patient_path, patient, 'anat')):
+        os.mkdir(os.path.join(new_patient_path, patient, 'anat'))
+        
+    for i, run in enumerate(runs):
+        logs_dict[run].to_csv(os.path.join(new_patient_path, patient, \
+                                                           'events', 'run' + '_' + run + '.tsv'), index=False, sep="\t")
+
+        merge_fmri_scans(
+                input_dir=os.path.join(patient_data_path, run), 
+                output_file=os.path.join(new_patient_path, patient, 'func', 'run' + '_' + run + '.nii'),
+                scans_numbers=necessary_scans[run]
+            )
+        
+    copy_struct(patient_data_path, new_patient_path, patient)
+
+
+import numpy as np
+from scipy.ndimage import gaussian_filter
+
+def smooth_covariance_maps(cov_maps, fwhm_mm=8.0, voxel_size=(2.0, 2.0, 5.0)):
+    """
+    Сглаживание 3D-карт ковариационных матриц Гауссовым ядром.
+    
+    Параметры:
+    cov_maps : numpy.ndarray, shape (X, Y, Z, k, k)
+        4D/5D массив ковариационных матриц для каждого вокселя.
+    fwhm_mm : float
+        Ширина ядра в мм (например, 8 мм FWHM).
+    voxel_size : tuple
+        Размер вокселя (dx, dy, dz) в мм.
+    
+    Возвращает:
+    smoothed_maps : numpy.ndarray
+        Сглаженные карты ковариационных матриц.
+    """
+    # Пересчет FWHM -> sigma в пикселях
+    sigma_mm = fwhm_mm / (2 * np.sqrt(2 * np.log(2)))
+    sigma_px = [sigma_mm / voxel_size[i] for i in range(3)]
+    
+    # Сглаживание каждой компоненты ковариационной матрицы
+    k = cov_maps.shape[-1]  # Размерность матрицы (k x k)
+    smoothed_maps = np.zeros_like(cov_maps)
+    
+    for i in range(k):
+        for j in range(k):
+            smoothed_maps[..., i, j] = gaussian_filter(
+                cov_maps[..., i, j],
+                sigma=sigma_px
+            )
+    
+    return smoothed_maps
+
+
+
+    
 
 
 

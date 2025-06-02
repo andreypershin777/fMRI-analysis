@@ -43,28 +43,101 @@ computing, get_best_thresholds, get_reproducibility, get_map_array, plot_map
 from diploma_functions import is_serializable, total_size, coord_voxel, f_obj, get_thresholds_dict, get_t_groups, \
 voxel_coord, coord_voxel, load_patient_logs, print_matrix, print_vector, get_Y, NpEncoder
 
-path_to_folder = r'C:\Users\andrew\Desktop\Mag Diploma\Код и новые данные\Запуск_3'
+path_to_folder = r'C:\Users\andrew\Desktop\Mag Diploma\Код и новые данные\Запуск_24'
 list_dir = os.listdir(path=path_to_folder)
 params_files = {}
 arrays = {}
 contrast_names = []
+arrays = {}
+array_cont = []
+array_ways = []
+array_K = []
+jsons = {}
+json_cont = []
+json_names = []
+json_files = []
+json_ways = []
+json_K = []
+json_levels = 1
+array_levels = 1
+array_names = []
+array_files = []
+#print(list_dir)
 for dir in list_dir:
     if dir.split('.')[1] == 'json':
-        contrast_name = dir.split('.')[0].split('_')[1]
-        if contrast_name not in contrast_names:
-            contrast_names.append(contrast_name)
-        params_files.append(dir)
+        json_names.append(dir)
+        file = open(os.path.join(path_to_folder, dir))
+        json_files.append(json.load(file))
     elif dir.split('.')[1] == 'npy':
-        contrast_name = dir.split('.')[0].split('_')[1]
-        if contrast_name not in contrast_names:
-            contrast_names.append(contrast_name)
-        arrays[contrast_name] = dir
-for contrast_name in contrast_names:
-    par_name = params_files[contrast_name]
-    arr_name = arrays[contrast_name]
+        array_names.append(dir)
+        array_files.append(np.load(os.path.join(path_to_folder, dir)))
+'''
+print(contrast_names)
+print(arrays)
+print(params_files)
+if len(array_cont) == 0:
+    array_cont.append(0)
+if len(array_ways) == 0:
+    array_ways.append(0)
+if len(array_K) == 0:
+    array_K.append(0)
+
+
+if (array_levels, json_levels) == (1, 1):
+    par_name = jsons['a']
+    arr_name = arrays['a']
     path_to_params = os.path.join(path_to_folder, par_name)
     path_to_array = os.path.join(path_to_folder, arr_name)
     reproducibility_array = np.load(path_to_array)
-    parameters_dict = json.load(path_to_params, cls=NpEncoder)
+    json_file = path_to_params
+    file = open(json_file)
+    parameters_dict = json.load(file, cls=NpEncoder)
     print('contrast =', contrast_name)
-    _ = plot_map(None, None, array_to_show=reproducibility_array)
+    _ = plot_map(None, None, array_to_show=reproducibility_array, save=False)
+
+
+if (array_levels, json_levels) == (1, 2):
+
+
+if (array_levels, json_levels) == (2, 1):
+
+
+if (array_levels, json_levels) == (2, 2):
+
+'''
+'''
+
+
+for contrast_name in array_cont:
+    for way in array_ways:
+        for K in array_K:
+            par_name = jsons[contrast_name]
+            arr_name = arrays[contrast_name]
+            path_to_params = os.path.join(path_to_folder, par_name)
+            path_to_array = os.path.join(path_to_folder, arr_name)
+            reproducibility_array = np.load(path_to_array)
+            json_file = path_to_params
+            file = open(json_file)
+            parameters_dict = json.load(file, cls=NpEncoder)
+            print('contrast =', contrast_name)
+            print('way =', way)
+            print('K =', K)
+            _ = plot_map(None, None, array_to_show=reproducibility_array, save=False)
+
+'''
+#print(array_files)
+for i, file in enumerate(array_files):
+    split = array_names[i].split('.')[0].split('_')
+    if len(split) > 1:
+        contrast = split[1]
+        if len(split) > 2:
+            way = split[2]
+            if len(split) > 3:
+                K = split[3]
+            else:
+                K = None
+        else:
+            way = None
+    else:
+        contrast = None
+    _ = plot_map(None, None, array_to_show=file, save=False, mode='other', contrast_name=contrast, way=way)
