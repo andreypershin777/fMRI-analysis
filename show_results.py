@@ -39,11 +39,11 @@ import concurrent.futures
 from typing import List, Dict, Tuple
 import pickle
 from diploma_functions import get_X, load_patient_data, chunk_voxels, run_computing_on_chunk,\
-computing, get_best_thresholds, get_reproducibility, get_map_array, plot_map
+computing, get_best_thresholds, get_reproducibility, get_map_array, plot_maps
 from diploma_functions import is_serializable, total_size, coord_voxel, f_obj, get_thresholds_dict, get_t_groups, \
 voxel_coord, coord_voxel, load_patient_logs, print_matrix, print_vector, get_Y, NpEncoder
 
-path_to_folder = r'C:\Users\andrew\Desktop\Mag Diploma\Код и новые данные\Запуск_24'
+path_to_folder = r'C:\Users\andrew\Desktop\Mag Diploma\Code_and_new_data\Запуск_92'
 list_dir = os.listdir(path=path_to_folder)
 params_files = {}
 arrays = {}
@@ -125,19 +125,31 @@ for contrast_name in array_cont:
             _ = plot_map(None, None, array_to_show=reproducibility_array, save=False)
 
 '''
+parameters = json_files[0]
+patient = os.path.split(parameters['data_path'])[1]
+anat_file_name = 'wm' + patient + '_T1.nii'
+anat_path = os.path.join(parameters['data_path'], 'structural', anat_file_name)
+anat_scan = nib.load(anat_path)
+anat_map_array = anat_scan.get_fdata()
+
 #print(array_files)
 for i, file in enumerate(array_files):
     split = array_names[i].split('.')[0].split('_')
-    if len(split) > 1:
-        contrast = split[1]
-        if len(split) > 2:
-            way = split[2]
-            if len(split) > 3:
-                K = split[3]
+    if len(split) > 2:
+        contrast = split[2]
+        if len(split) > 3:
+            way = split[3]
+            if len(split) > 4:
+                K = split[4]
             else:
                 K = None
         else:
             way = None
     else:
         contrast = None
-    _ = plot_map(None, None, array_to_show=file, save=False, mode='other', contrast_name=contrast, way=way)
+    print(file.shape)
+    print(anat_map_array.shape)
+    nX, nY, nZ = file.shape
+    print('file_name =', array_names[i])
+    _ = plot_maps(None, None, array_to_show=file, save=False, mode='other', contrast_name=contrast, \
+                  way=way, K=K, anat_map_array=anat_map_array, nX=nX, nY=nY, nZ=nZ)

@@ -41,24 +41,24 @@ import pickle
 from diploma_functions import get_X, load_patient_data, chunk_voxels, run_computing_on_chunk,\
 computing, get_best_thresholds, get_reproducibility, get_map_array, plot_map
 from diploma_functions import is_serializable, total_size, coord_voxel, f_obj, get_thresholds_dict, get_t_groups, \
-voxel_coord, coord_voxel, load_patient_logs, print_matrix, print_vector, get_Y, NpEncoder, make_data_for_SPM
+voxel_coord, coord_voxel, load_patient_logs, print_matrix, print_vector, get_Y, NpEncoder, make_data_for_SPM, make_data_SPM
 
 patients_folder = ''
 #patients = []
 #subs = []
 save_path = ''
-patients = ['M_Y3_003', 'M_Y3_007', 'M_Y3_012', 'M_Y3_019', 'M_Y3_024', 'M_Y3_025', \
+patients = ['M_Y3_003', 'M_Y3_007', 'M_Y3_012', 'M_Y3_019', 'M_Y3_024', 'M_Y3_025',
                'M_Y3_040', 'M_Y3_042', 'M_Y3_046', 'M_Y3_057']
 subs = ['sub-03', 'sub-07', 'sub-12', 'sub-19', 'sub-24', 'sub-25', 'sub-40', 'sub-42', 'sub-46', 'sub-57']
 runs = ['me_1', 'me_2', 'me_3', 'fr_1', 'fr_2', 'fr_3']
-new_patient_path = r'C:\Users\andrew\Desktop\Mag Diploma\Код и новые данные\SPM'
+new_data_path = r'C:\Users\andrew\Desktop\Mag Diploma\Code_and_new_data\data for SPM'
 patient = patients[0]
 run = runs[0]
-patient_data_folder = r'C:\Users\andrew\Desktop\Mag Diploma\Код и новые данные'
-patient_logs_folder = r'C:\Users\andrew\Desktop\Mag Diploma\Код и новые данные'
+patient_data_folder = r'C:\Users\andrew\Desktop\Mag Diploma\Code_and_new_data'
+patient_logs_folder = r'C:\Users\andrew\Desktop\Mag Diploma\Code_and_new_data\log'
 for i in range(len(patients)):
     patient = patients[i]
     sub = subs[i]
     patient_data_path = os.path.join(patient_data_folder, patient)
     patient_logs_path = os.path.join(patient_logs_folder, patient, 'log')
-    make_data_for_SPM(patient_data_path, patient_logs_path, sub, new_patient_path, runs)
+    make_data_SPM(patient_data_path, new_data_path, patient)

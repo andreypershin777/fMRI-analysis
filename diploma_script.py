@@ -37,33 +37,65 @@ from scipy.optimize import SR1
 from scipy import integrate
 import concurrent.futures
 from typing import List, Dict, Tuple
+from nilearn.masking import compute_brain_mask
 import pickle
 from diploma_functions import get_X, load_patient_data, chunk_voxels, run_computing_on_chunk,\
-computing, get_best_thresholds, get_reproducibility, get_map_array, plot_map
+computing, get_best_thresholds, get_reproducibility, get_map_array, plot_maps
 from diploma_functions import is_serializable, total_size, coord_voxel, f_obj, get_thresholds_dict, get_t_groups, \
 voxel_coord, coord_voxel, load_patient_logs, print_matrix, print_vector, get_Y, NpEncoder, smooth_covariance_maps, \
-get_t_value, get_T_value
+get_t_value, get_T_value, Tee
+from nilearn.image import resample_img
 
 
 def main():
-    patient_data_path = r'C:\Users\andrew\Desktop\Mag Diploma\Код и новые данные\M_Y3_057'
+    patient_data_path = r'C:\Users\andrew\Desktop\Mag Diploma\Code_and_new_data\data_preprocessed\M_Y3_057'
     patient_logs_path = os.path.join(patient_data_path, 'log')
-    save_path = r'C:\Users\andrew\Desktop\Mag Diploma\Код и новые данные'
-    
-    nX = 112
-    nY = 112
-    nZ = 25
+    patient = os.path.basename(patient_data_path)
+    save_path = r'C:\Users\andrew\Desktop\Mag Diploma\Code_and_new_data'
+    nX = 53
+    nY = 63
+    nZ = 52
+    #nX = 25
+    #nY = 25
+    #nZ = 25
     nV = nX*nY*nZ
     nT = 72
     nS = 18
     nR = 6
     nP = 5
     
+    target_shape = (nX, nY, nZ)
+    scans = os.listdir(os.path.join(patient_data_path, 'me_1'))
+    first_scan_path = os.path.join(patient_data_path, 'me_1', scans[0])
+    first_scan = nib.load(first_scan_path)
+    brain_mask = compute_brain_mask(first_scan, threshold=0.1)
+    mask_data = brain_mask.get_fdata()
     voxels = []
     for x in range(nX):
         for y in range(nY):
             for z in range(nZ):
-                voxels.append(coord_voxel(x, y, z, nX, nY, nZ))
+                if mask_data[x, y, z] != 0:
+                    voxels.append(coord_voxel(x, y, z, nX, nY, nZ))
+
+    print('Количество вокселей для анализа:', len(voxels))
+    print('Общее количество вокселей:', nV)
+
+    voxels_try_array = np.zeros((nX, nY, nZ))
+    for v in voxels:
+        x, y, z = voxel_coord(v, nX, nY, nZ)
+        voxels_try_array[x, y, z] = 1
+    #plt.imshow(voxels_try_array[:, :, nZ // 2], cmap='gray', interpolation='nearest')
+    #plt.show()
+
+    #anat_scan_array = nib.load(os.path.join(patient_data_path, 'structural', 'wm' + patient + '_T1.nii')).get_fdata()
+    #arr1 = anat_scan_array[:, :, anat_scan_array.shape[2] // 2]
+    #plt.imshow(arr1, cmap='gray', interpolation='nearest')
+    #plt.show()
+    #print('Размерность anat_scan_array:', anat_scan_array.shape)
+    #print('Размерность voxels_try_array:', voxels_try_array.shape)
+    #_ = plot_maps(None, None, array_to_show=voxels_try_array, save=False, mode='try', \
+    #              contrast_name='try', way='try', K=0, anat_map_array=anat_scan_array, \
+    #                nX=nX, nY=nY, nZ=nZ)
     
     k = nS
     k2 = 2
@@ -72,7 +104,7 @@ def main():
     
     #contrast = np.array([1 if i%2==0 else -1 for i in range(nS)]) #Пока взяли 'какой-то контраст'
     
-    K_list = [15, 30, 45, 60]
+    K_list = [30, 40, 50, 60]
     
     #x_list = [3, 4]
     x_list = []
@@ -89,6 +121,8 @@ def main():
 
     ways = ['other', 'lamda']
     #way = 'lamda'
+
+    lamda = 0.21
 
     auto_end = True
 
@@ -131,7 +165,10 @@ def main():
     frametimes_0 = [one_scan_time*i for i in range(nT)]
     
 
-    slicetimes_0 = [(i//2+1) * one_slice_time if i % 2 == 0 else ((n_slices+1) // 2 + (i+1) // 2) * one_slice_time for i in range(n_slices)]
+    #slicetimes_0 = [(i//2+1) * one_slice_time if i % 2 == 0 else ((n_slices+1) // 2 + (i+1) // 2) * one_slice_time for i in range(n_slices)]
+
+    #slicetimes_0 = [(i+1)*one_slice_time for i in range(n_slices)]
+    slicetimes_0 = [0.1 for i in range(nZ)]
 
     change_dict = {'FrMe_06.png': 'MeFr_04.png', 'FrMe_08.png': 'MeFr_02.png', 'FrMe_10.png': 'MeFr_00.png', \
                    'FrMe_00.png': 'MeFr_10.png', 'FrMe_04.png': 'MeFr_06.png', 'FrMe_02.png': 'MeFr_08.png'}
@@ -157,6 +194,8 @@ def main():
         #print(logs_dict[run]['stimulusitem1'].value_counts())
 
     if full_data:
+        nT = 144
+        nS = 54
         for run in runs:
             images = logs_dict[run]['stimulusitem1'].values
             for i in range(len(images)):
@@ -216,8 +255,14 @@ def main():
                 if not (('MeFr' in image) or ('FrMe' in image)):
                     continue
                 #print(i, image, len(contrast_me), len(contrast_fr))
-                contrast_me[i] = (1 if me_morf > median_morf_me else -1)
-                contrast_fr[i] = (1 if fr_morf > median_morf_fr else -1)
+                if ('MeFr' in image) or ('FrMe' in image):
+                    contrast_me[i] = me_morf - 0.5
+                    contrast_fr[i] = fr_morf - 0.5
+                else:
+                    contrast_me[i] = 0
+                    contrast_fr[i] = 0
+                #contrast_me[i] = (1 if me_morf > median_morf_me else -1)
+                #contrast_fr[i] = (1 if fr_morf > median_morf_fr else -1)
                 #print(f'{contrast[i]} = (1 - {response_diff}) * {target_morf}')
                 #target_morf_list[i] = target_morf
                 #response_diff_list[i] = response_diff
@@ -283,6 +328,8 @@ def main():
                     events[run][2][s] = -1
                     events[run][3][s] = 0
     else:
+        nT = 72
+        nS = 18
         necessary_scans = {}
         for run in runs:
             images = logs_dict[run]['stimulusitem1'].values
@@ -464,6 +511,26 @@ def main():
     #    print()
 
 
+    list_dir = os.listdir(path=save_path)
+    for i in range(10000):
+        folder_name = 'Запуск_' + str(i)
+        if folder_name in list_dir:
+            continue
+        else:
+            n_try = i
+            break
+    os.chdir(save_path)
+    save_path = os.path.join(save_path, folder_name)
+    os.mkdir(folder_name)
+    os.chdir(save_path)
+
+
+    output_path = os.path.join(save_path, 'output.txt')
+    f = open(output_path, 'w')
+    sys.stdout = Tee(sys.stdout, f)
+
+    #print("Hello, world!")
+    #print("Это будет и в консоли, и в файле.")
 
 
     z_slices = [i for i in range(nZ)]
@@ -476,8 +543,13 @@ def main():
                        frametimes=frametimes, slicetimes=slicetimes, events=events);
         X_matrixes.append(X_list.copy())
 
-    #for i in range(len(X_matrixes[0])):
-    #    print_matrix(X_matrixes[0][i], 'X_matrixes[{}][{}]'.format(0, i))
+    
+    #for r, run in enumerate(runs):
+    #    for z in range(len(X_matrixes)):
+    #        print(f'z = {z}')
+    #        print(events[run][0])
+    #        print(events[run][1])
+    #        print_matrix(X_matrixes[z][r], 'X_matrixes[{}][{}]'.format(z, r), events[run][1])
 
     for i in range(len(X_matrixes)):
         for x in range(len(X_matrixes[i])):
@@ -538,18 +610,6 @@ def main():
     result_files = []
     print('Начало процессов')
     
-    list_dir = os.listdir(path=save_path)
-    for i in range(10000):
-        folder_name = 'Запуск_' + str(i)
-        if folder_name in list_dir:
-            continue
-        else:
-            n_try = i
-            break
-    os.chdir(save_path)
-    save_path = os.path.join(save_path, folder_name)
-    os.mkdir(folder_name)
-    os.chdir(save_path)
 
     if(len(voxels) > 500):
         with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
@@ -575,27 +635,32 @@ def main():
             for x in range(nX):
                 for y in range(nY):
                     for z in range(nZ):
+                        if coord_voxel(x, y, z, nX, nY, nZ) not in cov_beta_final.keys():
+                            continue
                         cov_matrixes[x, y, z, :, :] = cov_beta_final[coord_voxel(x, y, z, nX, nY, nZ)][r, :, :]
             smoothed_cov_matrixes = smooth_covariance_maps(cov_matrixes)
             for x in range(nX):
                 for y in range(nY):
                     for z in range(nZ):
+                        if coord_voxel(x, y, z, nX, nY, nZ) not in cov_beta_final.keys():
+                            continue
                         cov_beta_final[coord_voxel(x, y, z, nX, nY, nZ)][r, :, :] = smoothed_cov_matrixes[x, y, z, :, :]
         for x in range(nX):
             for y in range(nY):
                 for z in range(nZ):
                     v = coord_voxel(x, y, z, nX, nY, nZ)
-                    mean_beta = mean_beta_final[v]
-                    disp_beta = cov_beta_final[v]
-                    Omega = Omega_final[v]
-                    mu = mu_final[v]
-                    for contrast_name, contrast in contrasts.items():
-                        t_value_list = get_t_value(mean_beta, disp_beta, contrast, nX, nY, nZ, nR, nT, nS)
-                        T_value = get_T_value(mu, Omega, contrast, nX, nY, nZ, nR, nT, nS)
-                        t_values_final[contrast_name][v] = np.array(t_value_list)
-                        T_values_final[contrast_name][v] = T_value
-                        del t_value_list
-                        del T_value
+                    if v in voxels:
+                        mean_beta = mean_beta_final[v]
+                        disp_beta = cov_beta_final[v]
+                        Omega = Omega_final[v]
+                        mu = mu_final[v]
+                        for contrast_name, contrast in contrasts.items():
+                            t_value_list = get_t_value(mean_beta, disp_beta, contrast, nX, nY, nZ, nR, nT, nS)
+                            T_value = get_T_value(mu, Omega, contrast, nX, nY, nZ, nR, nT, nS)
+                            t_values_final[contrast_name][v] = np.array(t_value_list)
+                            T_values_final[contrast_name][v] = T_value
+                            del t_value_list
+                            del T_value
     
     '''
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
@@ -627,10 +692,12 @@ def main():
     #time.sleep(5)
     #print("t_values_final:", t_values_final)
     #print("T_values_final:", T_values_final)
-    t_values_gen = {}
-    T_values_gen = {}
+    #t_values_gen = {}
+    #T_values_gen = {}
+    t_values_gen = t_values_final.copy()
+    T_values_gen = T_values_final.copy()
     voxel_status_dict_gen = {}
-    
+    '''
     for contrast_name in contrasts.keys():
         t_values_gen[contrast_name] = np.zeros((len(t_values_final[contrast_name]), nR))
         T_values_gen[contrast_name] = np.zeros((len(T_values_final[contrast_name]), nR))
@@ -639,7 +706,7 @@ def main():
         for i, (key, value) in enumerate(t_values_final[contrast_name].items()):
             t_values_gen[contrast_name][key, :] = value
             T_values_gen[contrast_name][key] = T_values_final[contrast_name][key]
-    
+    '''
     #for contrast_name in contrasts.keys():
     #    print(contrast_name, len(t_values_gen[contrast_name]), len(T_values_gen[contrast_name]))
     
@@ -659,23 +726,28 @@ def main():
             print('__________', 'contrast =', contrast_name, '___', 'way =', way, '___________')
             t_values = t_values_gen[contrast_name]
             T_values = T_values_gen[contrast_name]
-            print('Размер t_values:', t_values.shape)
+            print('Размер t_values:', len(t_values), len(t_values[coord_voxel(nX//2, nY//2, nZ//2, nX, nY, nZ)]))
             dict_thresholds = get_thresholds_dict(K_list, t_values, nX, nY, nZ, nR, nT, nS, mode)
             print(dict_thresholds)
             t_values_voxel_groups = get_t_groups(K_list, dict_thresholds, t_values, nX, nY, nZ, nR, nT, nS, mode)
             for K in K_list:
                 print('K =', K)
                 print('t_values')
-                for v in range(t_values.shape[0]):
+                for v in t_values.keys():
                     if any(t_values[v] == np.nan):
                         print('t_values[v] =', t_values[v])
-                    for i in range(t_values.shape[1]):
+                    for i in range(len(t_values[v])):
                         if t_values[v][i] == np.nan:
                             print(v, i)
                             print('t_values[v][i] =', t_values[v][i])
                 print('t_values_groups_counts')
-                print(np.sum(t_values_voxel_groups[K], axis=0))
-                print(np.sum(np.sum(t_values_voxel_groups[K], axis=0), axis=0))
+                sum_counts = [0] * (K + 1)
+                for v in t_values_voxel_groups[K].keys():
+                    for i in range(len(t_values_voxel_groups[K][v])):
+                        sum_counts[i] += t_values_voxel_groups[K][v][i]
+                print(sum_counts)
+                #print(np.sum(t_values_voxel_groups[K], axis=0))
+                #print(np.sum(np.sum(t_values_voxel_groups[K], axis=0), axis=0))
                 print(len(voxels) * nR)
                 #for v in range(t_values_voxel_groups[K].shape[0]):
                 #    for i in range(t_values_voxel_groups[K].shape[1]):
@@ -685,8 +757,8 @@ def main():
 
 
             n_t_dict = {}
-            for i in range(t_values.shape[0]):
-                t = tuple(t_values[i])
+            for v in t_values.keys():
+                t = tuple(t_values[v])
                 if t not in n_t_dict.keys():
                     n_t_dict[t] = 0
                 n_t_dict[t] += 1
@@ -697,16 +769,20 @@ def main():
             print('Мультипроцессинг за', t1-t0)
             final_thresholds, P_A_dict, P_I_dict, lamda_dict = get_best_thresholds(K_list, t_values, nX, \
                                                         nY, nZ, nR, nT, nS, mode, way=way, contrast_name=contrast_name, \
-                                                            save_path=save_path, need_plot=False)
+                                                            save_path=save_path, need_plot=False, lamda=lamda)
             lamda_0 = 0.02
             dict_thresholds = get_thresholds_dict(K_list, t_values, nX, nY, nZ, nR, nT, nS, mode)
             t_values_voxel_groups = get_t_groups(K_list, dict_thresholds, t_values, nX, nY, nZ, nR, nT, nS, mode)
-
+            t_values_voxel_groups_np = {}
+            for K in K_list:
+                t_values_voxel_groups_np[K] = np.zeros((len(t_values_voxel_groups[K].keys()), K+1))
+                for i, v in enumerate(t_values_voxel_groups[K].keys()):
+                    t_values_voxel_groups_np[K][i, :] = t_values_voxel_groups[K][v]
             for K in K_list:
                 #print('t_values')
                 #print(t_values)
                 #print('t_values_groups_counts')
-                print(np.sum(t_values_voxel_groups[K], axis=0))
+                #print(np.sum(t_values_voxel_groups[K], axis=0))
                 #print('t_values_voxel_groups')
                 #for v in range(t_values_voxel_groups[K].shape[0]):
                 #    print(t_values_voxel_groups[K][v])
@@ -717,12 +793,12 @@ def main():
                 print('P_A_list_0 =', P_A_list0)
                 print('P_I_list_0 =', P_I_list0)
                 print('Исходное значение функции правдоподобия :\n', f_obj(lamda_0, P_A_list0, \
-                                                                        P_I_list0, t_values_voxel_groups[K]))
+                                                                        P_I_list0, t_values_voxel_groups_np[K]))
                 print('lamda =', lamda_dict[K])
                 print('P_A_list =', P_A_dict[K])
                 print('P_I_list =', P_I_dict[K])
                 print('Итоговое значение функции правдоподобия :\n', f_obj(lamda_dict[K], P_A_dict[K], \
-                                                                        P_I_dict[K], t_values_voxel_groups[K]))
+                                                                        P_I_dict[K], t_values_voxel_groups_np[K]))
             print(f'contrast = {contrast_name}')
             print(f'way = {way}')
             print('Final thresholds:', final_thresholds)
@@ -764,6 +840,10 @@ def main():
             voxel_status_dict, _ = get_map_array(K_list, voxel_activity_dict, nX, nY, nZ, nR, nT, nS, mode, strong_threshold=0.8, normal_threshold=0.6)
             #final_voxel_status_dict = {}
             voxel_status_dict_gen[contrast_name][way] = voxel_status_dict.copy()
+            #print('voxel_activity_dict:')
+            #print(voxel_activity_dict)
+            #print('voxel_status_dict:')
+            #print(voxel_status_dict)
             t3 = time.time()
             print('Воспроизводимость за', t3-t2)
 
@@ -787,7 +867,7 @@ def main():
                 print()
                 print(f'Построение графиков для K={K} порогов, contrast = {contrast_name}, way = {way}')
 
-                final_voxel_status_dict_gen[contrast_name][way][K] = plot_map(voxel_status_dict_gen[contrast_name][way][K], t_values, x_list, y_list, z_list, nX, nY, nZ, \
+                final_voxel_status_dict_gen[contrast_name][way][K] = plot_maps(voxel_status_dict_gen[contrast_name][way][K], t_values, x_list, y_list, z_list, nX, nY, nZ, \
                                                     nR, nT, nS, contrast_name==contrast_name, mode='str', auto_end=auto_end)
                 
             parameters_dict = {'nX': nX, 'nY': nY, 'nZ': nZ, 'nS': nS, 'nR': nR, 'nT' : nT, \

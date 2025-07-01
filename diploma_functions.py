@@ -4,10 +4,12 @@ import pandas as pd
 #    import mne
 import copy
 import random
+from matplotlib.patches import Rectangle
 import time
 import math
 import numpy as np
 import os
+import shutil
 import json
 import sys
 import multiprocessing
@@ -19,6 +21,7 @@ import scipy.optimize as scopt
 import numpy as np
 import scipy
 import scipy.stats as sps
+from scipy.ndimage import gaussian_filter
 import traceback
 from scipy.optimize import LinearConstraint
 from scipy.linalg import inv, solve, pinv
@@ -27,6 +30,7 @@ from scipy.interpolate import UnivariateSpline
 from scipy import interpolate
 from scipy.signal import convolve2d
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap, Normalize
 from scipy.interpolate import interp1d
 from scipy.linalg import svd, pinv
 from scipy.optimize import SR1
@@ -189,6 +193,7 @@ def load_patient_logs(patient_logs_path,):
         #Несколько прогонов сразу, нужно разбить
         file_path = os.path.join(patient_logs_path, file)
         log_file = pd.read_csv(file_path, sep='\t')
+        #print(log_file.columns)
         block_nums = log_file['values.TestBlockNum'].unique()
         block_nums = block_nums[block_nums != 0]
         for block_num in block_nums:
@@ -268,8 +273,8 @@ def conv2d(A, B):
 
 
 def h1(t, alpha1=6, alpha2=16, beta1=1, beta2=1, c=1/6, A=1):
-    gamma1 = t**(alpha1 - 1) * beta1**alpha1 * math.exp(-beta1 * t) / math.gamma(alpha1)
-    gamma2 = t**(alpha2 - 1) * beta2**alpha2 * math.exp(-beta2 * t) / math.gamma(alpha2)
+    gamma1 = t**(alpha1) / beta1**alpha1 * math.exp(-t/beta1) / math.gamma(alpha1)
+    gamma2 = t**(alpha2) / beta2**alpha2 * math.exp(-t/beta2) / math.gamma(alpha2)
     return A * (gamma1 - gamma2 * c)
 
 
@@ -313,10 +318,17 @@ def x_coef3(t, t_min=0, t_max=0, alpha1=6, alpha2=16, beta1=1, beta2=1, c=1/6, A
 
 
 
-def x_coef4(t, t_min=0, t_max=0, alpha1=6, alpha2=16, beta1=1, beta2=1, c=1/6, A=1):
+def x_coef4(t, t_min=0, t_max=0, alpha1=6, alpha2=16, beta1=1, beta2=1, c=1/6, A=1, TR=2.5):
     #return integrate.quad(lambda x: h(x, alpha1=alpha1, alpha2=alpha2, beta1=beta1, beta2=beta2, c=c, A=A) * s(t-x, t_min, t_max), 0, 10)[0]
-    return integrate.quad(lambda x: h1(x, alpha1=alpha1, alpha2=alpha2, beta1=beta1, beta2=beta2, c=c, A=A) * \
-                          s(t-x, t_min, t_max), 0, t, limit=100, epsrel=1e-3)[0]
+    if t < t_min:
+        return 0
+    elif t >= t_min and t <= t_max:
+        return integrate.quad(lambda x: h1(t-x, alpha1=alpha1, alpha2=alpha2, beta1=beta1, beta2=beta2, c=c, A=A), t_min, t, limit=100, epsrel=1e-8)[0]
+    elif t > t_max and t > t_max + 3 * TR:
+        return 0
+    elif t > t_max:
+        return integrate.quad(lambda x: h1(t-x, alpha1=alpha1, alpha2=alpha2, beta1=beta1, beta2=beta2, c=c, A=A), t_min, t_max, limit=100, epsrel=1e-8)[0]
+    
 
 
 
@@ -340,26 +352,23 @@ def design_matrix(frametimes, slicetimes=0, events=np.array([[1, 0]]), S=None,
     matrix = np.zeros((nT, nS))
     eventime = events[1]
     evendur = events[2]
-    for i in range(matrix.shape[0]):
-        for j in range(matrix.shape[1]):
+    for j in range(matrix.shape[1]):
+        for i in range(matrix.shape[0]):
             if eventime[j] != -1:
                 t = frametimes[i] + slicetimes[z]
                 #print(eventime[j])
                 #print(evendur[j])
                 #print(matrix[i, j])
                 matrix[i, j] = x_coef4(t, t_min=eventime[j], t_max=eventime[j]+evendur[j])
+                #if matrix[i,j] != 0:
+                #    print(f'z={z}')
+                #    print(f't={t}, t_min={eventime[j]}, t_max={eventime[j]+evendur[j]}')
+                #    print(f'matrix[{i}][{j}] = {matrix[i, j]}')
     return matrix
 
 
 
 
-def print_matrix(matrix):
-    m, n = matrix.shape
-    for i in range(m):
-        for j in range(n):
-            elem = matrix[i, j]
-            print("{0:0.2f}".format(elem), end=', ')
-        print()
 
 
 
@@ -402,7 +411,7 @@ def pre_whitening(array_matrixes, rho=0.5):
 
 
 def get_X(patient_logs_path=None, voxel=None, nX=None, nY=None, nZ=None, 
-          nR=None, nT=None, nS=None, runs=None, frametimes=None, slicetimes=None, events=None, prew=True):
+          nR=None, nT=None, nS=None, runs=None, frametimes=None, slicetimes=None, events=None, prew=False):
     #print('Получаем матрицы X')
     logs_dict = load_patient_logs(patient_logs_path)
     rho = 0.5
@@ -433,7 +442,7 @@ def get_X(patient_logs_path=None, voxel=None, nX=None, nY=None, nZ=None,
 
 
 
-def get_Y(patient_data_path=None, voxel=None, Y_paths=None, runs=None, prew=True):
+def get_Y(patient_data_path=None, voxel=None, Y_paths=None, runs=None, prew=False):
     rho = 0.5
     Y_list = []
     t1 = time.time()
@@ -1261,7 +1270,7 @@ def glm_em(X_list, Y_list, X_star, nX, nY, nZ, nR, nT, nS, max_iter=100, tol=1e-
     
     return beta_hat, sigma_hat
 
-def print_matrix(matrix, name):
+def print_matrix(matrix, name, times, TR=2.5):
     """
     Печатает матрицу с ее именем и размером.
     
@@ -1271,9 +1280,40 @@ def print_matrix(matrix, name):
     """
     n, m = matrix.shape
     print(f"{name} (shape: {matrix.shape}):")
+    print(" "*19, end="")
+    for i in range(m):
+        number = 6 - len(str(i+1))
+        print(i+1, end=" "*number)
+    print()
     for i in range(n):
+        number = 6 - len(str(i*TR))
+        indecator = False
         for j in range(m):
-            print(f"{round(matrix[i, j], 2)}", end=" ")
+            if i * TR <= times[j] < (i+1)*TR:
+                number1 = 6 - len(str(j+1))
+                number2 = 7 - len(str(round(times[j], 2)))
+                print(j+1, end=" "*number1)
+                print(round(times[j], 2), end=" "*number2)
+                indecator = True
+                break
+        if not indecator:
+            print(" "*13, end="")
+        print(i*TR, end=" "*number)
+        for j in range(m):
+            if matrix[i,j] * 100 < 1 and matrix[i,j] > 0:
+                print("0", end="     ")
+            elif matrix[i, j] < 0 and matrix[i,j] * 100 > -1:
+                print("0", end="     ")
+            elif matrix[i, j] < 0:
+                number = 5-len(str(round(matrix[i, j], 2)))
+                extra = number * " "
+                print(f"{round(matrix[i, j], 2)}", end=" "+extra)
+            elif matrix[i,j] > 0:
+                number = 4-len(str(round(matrix[i, j], 2)))
+                extra = number * " "
+                print(f"{round(matrix[i, j], 2)}", end="  "+extra)
+            elif matrix[i, j] == 0:
+                print("0", end="     ")
         print()
     print()
 
@@ -1621,7 +1661,7 @@ def get_T_value(mu, Omega, contrast,  nX=None, nY=None, nZ=None, nR=None, nT=Non
 
 
 def voxel_coord(v, nX, nY, nZ):
-    return (v % (nX * nY)) % nY, (v % (nX * nY)) // nY, v // (nX * nY)
+    return (v % (nX * nY)) % nX, (v % (nX * nY)) // nX, v // (nX * nY)
 
 
 def coord_voxel(x, y, z, nX, nY, nZ):
@@ -1631,9 +1671,9 @@ def coord_voxel(x, y, z, nX, nY, nZ):
 
 def get_thresholds_dict(K_list, t_values, nX=None, nY=None, nZ=None, nR=None, nT=None, nS=None, mode='value'):
     t_values_list = []
-    for v in range(t_values.shape[0]):
-        for r in range(t_values.shape[1]):
-            t_values_list.append(abs(t_values[v, r]))
+    for v in t_values.keys():
+        for r in range(len(t_values[v])):
+            t_values_list.append(abs(t_values[v][r]))
     t_values_list_sorted = sorted(t_values_list)
 
     min_value = min(t_values_list)
@@ -1643,7 +1683,7 @@ def get_thresholds_dict(K_list, t_values, nX=None, nY=None, nZ=None, nR=None, nT
     #dict_thresholds['value'] = {}
 
     for K in K_list:
-        n_elem = t_values.shape[0] * t_values.shape[1] // (K+1)
+        n_elem = len(t_values.keys()) * nR // (K+1)
         dict_thresholds[K] = []
         #dict_thresholds['numb'][K] = []
         #dict_thresholds['value'][K] = []
@@ -1684,10 +1724,12 @@ def get_t_groups(K_list, dict_thresholds, t_value, nX=None, nY=None, nZ=None, nR
     #t_value_voxel_groups['numb'] = {}
     #t_value_voxel_groups['value'] = {}
     for K in K_list:
-        t_value_voxel_groups[K] = np.zeros((nV, K+1))
+        #t_value_voxel_groups[K] = np.zeros((nV, K+1))
+        t_value_voxel_groups[K] = {}
         #t_value_voxel_groups['numb'][K] = np.zeros((nV, K+1))
         #t_value_voxel_groups['value'][K] = np.zeros((nV, K+1))
-        for v in range(t_value.shape[0]):
+        for v in t_value.keys():
+            t_value_voxel_groups[K][v] = [0] * (K + 1)
             for n_group in range(0, K+1):
                 if n_group == 0:
                     
@@ -2154,8 +2196,8 @@ def solve_prob(K, t_value_voxel_groups, nX=None, nY=None, nZ=None, \
 
 def print_get_solution(K, t_value_voxel_groups, need_print=True, nX=None, nY=None, nZ=None,\
                        nR=None, nT=None, nS=None, mode='value', way='lamda', lamda=None):
-    lambda_, P_A_list, P_I_list = EM_optimization(K=K, r=t_value_voxel_groups, nX=nX, nY=nY, nZ=nZ, nR=nR, nT=nT, nS=nS, \
-                     mode=way)
+    lambda_, P_A_list, P_I_list = EM_optimization(t_value_voxel_groups, K, nX=nX, nY=nY, nZ=nZ, nR=nR, nT=nT, nS=nS, \
+                     mode=way, lamda=lamda)
     
     #variables = res.x
     #lamda = variables[0]
@@ -2282,7 +2324,7 @@ def check_swap(K, lamda, P_AI_K_dict, way):
 
 def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
                         nR=None, nT=None, nS=None, mode='value', way='lamda', \
-                            contrast_name = '', save_path=None, need_plot=True):
+                            contrast_name = '', save_path=None, lamda=None, need_plot=True):
     final_thresholds = {}
     #final_thresholds['value'] = {}
     #final_thresholds['numb'] = {}
@@ -2303,7 +2345,7 @@ def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
     
     for K in K_list:
         #P_A_k
-        lamda, P_A_list, P_I_list = print_get_solution(K, t_values_voxel_groups[K], False, nX, nY, nZ, nR, nT, nS, mode, way)
+        lamda, P_A_list, P_I_list = print_get_solution(K, t_values_voxel_groups[K], False, nX, nY, nZ, nR, nT, nS, mode, way, lamda=lamda)
         P_Ak_dict[K] = copy.deepcopy(P_A_list)
         #P_A_dict['value'][K] = copy.deepcopy(P_A_list_value)
         #P_A_dict['numb'][K] = copy.deepcopy(P_A_list_numb)
@@ -2364,6 +2406,25 @@ def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
     for K in K_list:
         count = 0
         #count1 = 0
+        if best_P_A[K] < P_A_dict[K][0] or best_P_I[K] < P_I_dict[K][0]:
+            final_thresholds[K] = dict_thresholds[K][-1]
+            count = 1
+            continue
+        for i, P_I in enumerate(P_I_dict[K]):
+            if P_I < best_P_I[K]:
+                continue
+            if P_I >= best_P_I[K] and count == 0 and not i == K-1:
+                count = 1
+                n_pare = i
+                break
+        if count == 1:
+            koef = (best_P_I[K] - P_I_dict[K][n_pare]) / (P_I_dict[K][n_pare+1] - P_I_dict[K][n_pare])
+            final_thresholds[K] = dict_thresholds[K][K - n_pare-1] + \
+                (dict_thresholds[K][K-2-n_pare] - dict_thresholds[K][K - n_pare - 1]) * koef
+        elif count == 0:
+            final_thresholds[K] = dict_thresholds[K][0]
+            #final_thresholds['numb'][K] =
+        '''
         pare_next = (P_I_dict[K][1], P_A_dict[K][1])
         pare_prev = (P_I_dict[K][0], P_A_dict[K][0])
         n_pare = 1
@@ -2411,6 +2472,7 @@ def get_best_thresholds(K_list, t_values, nX=None, nY=None, nZ=None, \
         final_thresholds[K] = threshold_prev + (threshold_next - threshold_prev) * koef
         #final_thresholds['numb'][K] = threshold_prev['numb'] + (threshold_next['numb'] - threshold_prev['numb']) * koef['numb']
         #final_thresholds['value'][K] = threshold_prev['value'] + (threshold_next['value'] - threshold_prev['value']) * koef['value']
+        '''
     return final_thresholds, P_Ak_dict, P_Ik_dict, lamda_dict
 
 
@@ -2421,12 +2483,18 @@ def get_reproducibility(K_list, final_thresholds, t_values, \
     print(final_thresholds.keys())
     voxel_status_dict = {}
     for K in K_list:
-        voxel_status_dict[K] = np.zeros((t_values.shape[0]))
+        voxel_status_dict[K] = np.zeros((nX*nY*nZ), dtype=float)
         #print(voxel_status_dict.keys())
         #print(voxel_status_dict[K])
-        for v in range(t_values.shape[0]):
-            voxel_status_dict[K][v] = sum([(t_val > final_thresholds[K]) \
-                                           for t_val in t_values[v]]) / t_values[v].shape[0]
+        for v in range(nX*nY*nZ):
+            if v in t_values.keys():
+                voxel_status_dict[K][v] = max(sum([(t_val > final_thresholds[K]) \
+                                            for t_val in t_values[v]]) / len(t_values[v]), 
+                                            sum([(t_val < -final_thresholds[K]) \
+                                            for t_val in t_values[v]]) / len(t_values[v])
+                )
+            else:
+                voxel_status_dict[K][v] = 0.0
     return voxel_status_dict
 
 
@@ -2550,10 +2618,139 @@ def check_neighbours(data_array, x, y, z, nX=None, nY=None, nZ=None, nR=None, nT
 
 from scipy.special import logsumexp
 
-def EM_optimization(r, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=None, nR=None, nS=None, mode='lamda', lamda=0.02, n_repeats=10):
+def one_EM_try(t_values_voxel_groups, K, max_iter=200, tol=1e-6, nX=None, nY=None, nZ=None, nT=None, nR=None, nS=None, mode='lamda', lamda=0.02, n_repeats=10):
+    r = np.zeros((len(t_values_voxel_groups), K+1))
+    for v, key in enumerate(t_values_voxel_groups.keys()):
+        for k in range(K+1):
+            r[v, k] = t_values_voxel_groups[key][k]
+    N, _ = r.shape
+    M = np.sum(r[0])
+
+    #print('Число t-значений по группам: \n', r)
+    #Инициализация
+    if mode == 'lamda':
+        lambda_ = lamda
+    else:
+        lambda_ = 0.5
+    delta_P_A = sps.uniform.rvs(size=K+1, loc = -1/(K+2), scale = 2/(K+2))
+    delta_P_I = sps.uniform.rvs(size=K+1, loc = -1/(K+2), scale = 2/(K+2))
+    #delta_P_A = np.array([1/(2*K+2) if i % 2 == 0 else -1/(2*K+2) for i in range(K+1)])
+    #delta_P_I = np.array([1/(2*K+2) if i % 2 == 1 else -1/(2*K+2) for i in range(K+1)])
+    #rand_n1 = np.random.randint(0, K+1)
+    #rand_n2 = np.random.randint(0, K+1)
+    #delta_P_A[rand_n1] = - (np.sum(delta_P_A) - delta_P_A[rand_n1])
+    #delta_P_I[rand_n2] = - (np.sum(delta_P_I) - delta_P_I[rand_n2])
+    #sum_delta_P_A = np.sum(delta_P_A)
+    #sum_delta_P_I = np.sum(delta_P_I)
+    #for i in range(len(delta_P_A)):
+    #    delta_P_A[i] -= sum_delta_P_A/len(delta_P_A)
+    #    delta_P_I[i] -= sum_delta_P_I/len(delta_P_I)
+    P_A = np.ones(K+1) / (K+1) + delta_P_A
+    P_I = np.ones(K+1) / (K+1) + delta_P_I
+    sum_P_A = np.sum(P_A)
+    sum_P_I = np.sum(P_I)
+    for i in range(len(P_A)):
+        P_A[i] /= sum_P_A
+        P_I[i] /= sum_P_I
+    if mode != 'lamda':
+        lambda_ = sps.uniform.rvs(size=1, loc=0, scale=1)[0]
+
+    start_lambda = lambda_
+    start_P_A = P_A.copy()
+    start_P_I = P_I.copy()
+
+    #print('Начали оптимизацию')
+    #print(r)
+    n_iters = 0
+    for i in range(max_iter):
+        #print('Итерация', i)
+        #print('lambda:', lambda_)
+        #print('P_A:\n', P_A)
+        #print('P_I:\n', P_I)
+        # E-шаг: вычисление gamma_v
+        log_P_A = np.log(P_A + 1e-10)
+        log_P_I = np.log(P_I + 1e-10)
+        log_lambda = np.log(lambda_)
+        log_1m_lambda = np.log(1 - lambda_)
+        
+        log_gamma_A = r @ log_P_A.T + log_lambda
+        #print('log_gamma_A', log_gamma_A.shape)
+        log_gamma_I = r @ log_P_I.T + log_1m_lambda
+        #print('log_gamma_A', log_gamma_I.shape)
+        
+        gamma = np.exp(log_gamma_A - logsumexp(np.vstack([log_gamma_A, log_gamma_I]), axis=0))
+        #if mode == 'lamda':
+        #    sum_gamma = np.sum(gamma)
+        #    for v in range(gamma.shape[0]):
+        #        gamma[v] = gamma[v] / sum_gamma
+        #print('gamma:\n', gamma)
+
+        #for v in range(N):
+        #    print(f'gamma[{v}]')
+        #    print(f'{gamma[v]} = ({np.exp(log_gamma_A[v])}) / ({np.exp(log_gamma_A[v])} + {np.exp(log_gamma_I[v])})')
+
+        # M-шаг: обновление параметров
+        if mode == 'lamda':
+            lambda_new = lambda_
+        else:
+            lambda_new = np.mean(gamma)
+        #print('lambda_new:', lambda_new)
+        sum_gamma = np.sum(gamma)
+        sum_1m_gamma = N - sum_gamma
+        
+        #P_A_new = np.sum(gamma[:, None] * r, axis=0) / (M * sum_gamma)
+        #P_A_new = np.zeros(K+1)
+        #for k in range(K+1):
+        #    P_A_new[k] = np.sum([gamma[v] * r[v, k] for v in range(N)])
+        P_A_new = gamma.T @ r / (M * sum_gamma)
+        #print('P_A_new:\n', P_A_new)
+
+        #for k in range(K+1):
+        #    print(f'P_A_{k}')
+        #    print(f'{P_A_new[k]} = ({(gamma.T @ r)[k]}) / ({M} * {sum_gamma})')
+
+        #P_I_new = np.sum((1 - gamma)[:, None] * r, axis=0) / (M * sum_1m_gamma)
+        P_I_new = (1 - gamma).T @ r/ (M * sum_1m_gamma)
+        #print('P_I_new:\n', P_I_new)
+
+        #for k in range(K+1):
+        #    print(f'P_I_{k}')
+        #    print(f'{P_I_new[k]} = ({((1-gamma).T @ r)[k]}) / ({M} * {sum_1m_gamma})')
+        
+        # Проверка сходимости
+        if ((np.abs(lambda_new - lambda_)) < tol or mode == 'lamda') and \
+            np.all(np.abs(P_A_new - P_A) < tol) and \
+            np.all(np.abs(P_I_new - P_I) < tol) or i == max_iter-1:
+            n_iters = i + 1
+            break
+        #print(((np.abs(lambda_new - lambda_)) < tol or mode == 'lamda'), np.all(np.abs(P_A_new - P_A) < tol), np.all(np.abs(P_I_new - P_I) < tol))
+        #print(np.abs(P_A_new - P_A),'\n', np.abs(P_I_new - P_I))
+            
+        
+        #if mode != 'lamda':
+        lambda_, P_A, P_I = lambda_new, P_A_new, P_I_new
+        #else:
+        #    P_A, P_I = P_A_new, P_I_new
+        #print('lambda:', lambda_)
+        #print('P_A:\n', P_A)
+        #print('P_I:\n', P_I)
+    #print('P_A:')
+    #print(P_A)
+    #print('P_I:')
+    #print(P_I)
+    #print('lambda:')
+    #print(lambda_)
+    return lambda_, P_A, P_I, start_lambda, start_P_A, start_P_I, n_iters
+
+
+def EM_optimization(t_values_voxel_groups, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=None, nR=None, nS=None, mode='lamda', lamda=0.02, n_repeats=50):
     #lambda_dict = {}
     #P_A_dict = {}
     #P_I_dict = {}
+    r = np.zeros((len(t_values_voxel_groups), K+1))
+    for v, key in enumerate(t_values_voxel_groups.keys()):
+        for k in range(K+1):
+            r[v, k] = t_values_voxel_groups[key][k]
     N, _ = r.shape
     M = np.sum(r[0])
 
@@ -2564,130 +2761,25 @@ def EM_optimization(r, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=
     else:
         lambda_ = 0.5
 
-    start_lambda = []
-    start_P_A = []
-    start_P_I = []
+    start_lambdas = []
+    start_P_As = []
+    start_P_Is = []
     solutions_lambda = []
     solutions_P_A = []
     solutions_P_I = []
-
-    for n_rep in range(n_repeats):
-        delta_P_A = sps.uniform.rvs(size=K+1, loc = -1/(K+2), scale = 2/(K+2))
-        delta_P_I = sps.uniform.rvs(size=K+1, loc = -1/(K+2), scale = 2/(K+2))
-        #delta_P_A = np.array([1/(2*K+2) if i % 2 == 0 else -1/(2*K+2) for i in range(K+1)])
-        #delta_P_I = np.array([1/(2*K+2) if i % 2 == 1 else -1/(2*K+2) for i in range(K+1)])
-        #rand_n1 = np.random.randint(0, K+1)
-        #rand_n2 = np.random.randint(0, K+1)
-        #delta_P_A[rand_n1] = - (np.sum(delta_P_A) - delta_P_A[rand_n1])
-        #delta_P_I[rand_n2] = - (np.sum(delta_P_I) - delta_P_I[rand_n2])
-        #sum_delta_P_A = np.sum(delta_P_A)
-        #sum_delta_P_I = np.sum(delta_P_I)
-        #for i in range(len(delta_P_A)):
-        #    delta_P_A[i] -= sum_delta_P_A/len(delta_P_A)
-        #    delta_P_I[i] -= sum_delta_P_I/len(delta_P_I)
-        P_A = np.ones(K+1) / (K+1) + delta_P_A
-        P_I = np.ones(K+1) / (K+1) + delta_P_I
-        sum_P_A = np.sum(P_A)
-        sum_P_I = np.sum(P_I)
-        for i in range(len(P_A)):
-            P_A[i] /= sum_P_A
-            P_I[i] /= sum_P_I
-        if mode != 'lamda':
-            lambda_ = sps.uniform.rvs(size=1, loc=0, scale=1)[0]
-        #print('start_values rep', n_rep, ':')
-        #print('P_A_start:')
-        #print(P_A)
-        start_P_A.append(P_A)
-        #print('P_I_start:')
-        #print(P_I)
-        start_P_I.append(P_I)
-        #print('lambda_start:')
-        #print(lambda_)
-        start_lambda.append(lambda_)
-        #print('Начали оптимизацию')
-        #print(r)
-        n_iters = 0
-        for i in range(max_iter):
-            #print('Итерация', i)
-            #print('lambda:', lambda_)
-            #print('P_A:\n', P_A)
-            #print('P_I:\n', P_I)
-            # E-шаг: вычисление gamma_v
-            log_P_A = np.log(P_A + 1e-10)
-            log_P_I = np.log(P_I + 1e-10)
-            log_lambda = np.log(lambda_)
-            log_1m_lambda = np.log(1 - lambda_)
-            
-            log_gamma_A = r @ log_P_A.T + log_lambda
-            #print('log_gamma_A', log_gamma_A.shape)
-            log_gamma_I = r @ log_P_I.T + log_1m_lambda
-            #print('log_gamma_A', log_gamma_I.shape)
-            
-            gamma = np.exp(log_gamma_A - logsumexp(np.vstack([log_gamma_A, log_gamma_I]), axis=0))
-            #if mode == 'lamda':
-            #    sum_gamma = np.sum(gamma)
-            #    for v in range(gamma.shape[0]):
-            #        gamma[v] = gamma[v] / sum_gamma
-            #print('gamma:\n', gamma)
-
-            #for v in range(N):
-            #    print(f'gamma[{v}]')
-            #    print(f'{gamma[v]} = ({np.exp(log_gamma_A[v])}) / ({np.exp(log_gamma_A[v])} + {np.exp(log_gamma_I[v])})')
-
-            # M-шаг: обновление параметров
-            if mode == 'lamda':
-                lambda_new = lambda_
-            else:
-                lambda_new = np.mean(gamma)
-            #print('lambda_new:', lambda_new)
-            sum_gamma = np.sum(gamma)
-            sum_1m_gamma = N - sum_gamma
-            
-            #P_A_new = np.sum(gamma[:, None] * r, axis=0) / (M * sum_gamma)
-            #P_A_new = np.zeros(K+1)
-            #for k in range(K+1):
-            #    P_A_new[k] = np.sum([gamma[v] * r[v, k] for v in range(N)])
-            P_A_new = gamma.T @ r / (M * sum_gamma)
-            #print('P_A_new:\n', P_A_new)
-
-            #for k in range(K+1):
-            #    print(f'P_A_{k}')
-            #    print(f'{P_A_new[k]} = ({(gamma.T @ r)[k]}) / ({M} * {sum_gamma})')
-
-            #P_I_new = np.sum((1 - gamma)[:, None] * r, axis=0) / (M * sum_1m_gamma)
-            P_I_new = (1 - gamma).T @ r/ (M * sum_1m_gamma)
-            #print('P_I_new:\n', P_I_new)
-
-            #for k in range(K+1):
-            #    print(f'P_I_{k}')
-            #    print(f'{P_I_new[k]} = ({((1-gamma).T @ r)[k]}) / ({M} * {sum_1m_gamma})')
-            
-            # Проверка сходимости
-            if ((np.abs(lambda_new - lambda_)) < tol or mode == 'lamda') and \
-                np.all(np.abs(P_A_new - P_A) < tol) and \
-                np.all(np.abs(P_I_new - P_I) < tol) or i == max_iter-1:
-                n_iters = i + 1
-                solutions_lambda.append(lambda_)
-                solutions_P_A.append(P_A.copy())
-                solutions_P_I.append(P_I.copy())
-                break
-            #print(((np.abs(lambda_new - lambda_)) < tol or mode == 'lamda'), np.all(np.abs(P_A_new - P_A) < tol), np.all(np.abs(P_I_new - P_I) < tol))
-            #print(np.abs(P_A_new - P_A),'\n', np.abs(P_I_new - P_I))
-                
-            
-            #if mode != 'lamda':
-            lambda_, P_A, P_I = lambda_new, P_A_new, P_I_new
-            #else:
-            #    P_A, P_I = P_A_new, P_I_new
-            #print('lambda:', lambda_)
-            #print('P_A:\n', P_A)
-            #print('P_I:\n', P_I)
-        #print('P_A:')
-        #print(P_A)
-        #print('P_I:')
-        #print(P_I)
-        #print('lambda:')
-        #print(lambda_)
+    num_workers = os.cpu_count()
+    args = (t_values_voxel_groups, K, max_iter, tol, None, None, None, None, None, None, mode, lamda, n_repeats)
+    args_list = [args] * n_repeats
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = [executor.submit(one_EM_try, *args) for args in args_list]
+        for future in concurrent.futures.as_completed(futures):
+            lambda_, P_A, P_I, start_lambda, start_P_A, start_P_I, _ = future.result()
+            solutions_lambda.append(lambda_)
+            solutions_P_A.append(P_A.copy())
+            solutions_P_I.append(P_I.copy())
+            start_lambdas.append(start_lambda)
+            start_P_As.append(start_P_A.copy())
+            start_P_Is.append(start_P_I.copy())
 
     best_P_A_list = solutions_P_A[0]
     best_P_I_list = solutions_P_I[0]
@@ -2695,12 +2787,14 @@ def EM_optimization(r, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=
     best_f = f_obj(best_lambda, best_P_A_list, best_P_I_list, r)
     f_obj_values = []
     start_f_values = []
+    print(len(solutions_lambda), len(solutions_P_A), len(solutions_P_I))
+    print(n_repeats)
     for i in range(n_repeats):
         P_A_list = solutions_P_A[i]
         P_I_list = solutions_P_I[i]
         lambda_ = solutions_lambda[i]
         curr_f = f_obj(lambda_, P_A_list, P_I_list, r)
-        start_f = f_obj(start_lambda[i], start_P_A[i], start_P_I[i], r)
+        start_f = f_obj(start_lambdas[i], start_P_As[i], start_P_Is[i], r)
         start_f_values.append(start_f)
         f_obj_values.append(curr_f)
         if curr_f > best_f:
@@ -2719,10 +2813,6 @@ def EM_optimization(r, K, max_iter=100, tol=1e-6, nX=None, nY=None, nZ=None, nT=
     #    print('start:', start_f_values[i])
     #    print('final:', f_obj_values[i])
     #print(f_obj_values)
-    if n_iters != 0:
-        print('Остановились на итерации', n_iters)
-    else:
-        print('Закончили по количеству итераций')
     print('mode:', mode)
     print('lambda:', lambda_)
     #print('lambda_new:', lambda_new)
@@ -2808,12 +2898,71 @@ def get_map_array(K_list, voxel_status_dict, \
     return reproducibility_array, coord_voxel_array
 
 
+def plot_map(base, overlay, axis=None, name=None):
+    """
+    Визуализирует base (2D np.array) в оттенках серого,
+    поверх рисует overlay (2D np.array) без ресайза overlay,
+    с палитрой: 0 — прозрачный, >0 — жёлтый, <0 — зелёный.
+    """
+    base = base.T
+    overlay = overlay.T
+    base_inv = base[::-1, :]
+    overlay_inv = overlay[::-1, :]
+    base = base_inv
+    overlay = overlay_inv
+    fig, ax = plt.subplots()
+    ax.imshow(base, cmap='gray', interpolation='nearest')
+    
+    base_h, base_w = base.shape
+    over_h, over_w = overlay.shape
+    
+    # Размер одного пикселя overlay в пикселях base
+    rect_h = base_h / over_h
+    rect_w = base_w / over_w
+
+    for i in range(over_h):
+        for j in range(over_w):
+            val = overlay[i, j]
+            if val == 0:
+                continue  # прозрачный
+            if val > 0:
+                # оттенки жёлтого
+                # интенсивность нормировать на максимум
+                color = (1, 1, 0)
+                alpha = min(1.0, abs(val) / np.max(overlay[overlay > 0]))
+            else:
+                # оттенки зелёного
+                color = (0, 1, 0)
+                alpha = min(1.0, abs(val) / abs(np.min(overlay[overlay < 0])))
+            rect = Rectangle((j * rect_w, i * rect_h), rect_w, rect_h, 
+                             color=color, alpha=alpha, linewidth=0)
+            ax.add_patch(rect)
+
+    plt.xlabel(axis[0] + ' axis')
+    plt.ylabel(axis[1] + ' axis')
+    plt.title(name if name else 'Overlay on Base Map')
+    ax.set_xlim(0, base_w)
+    ax.set_ylim(base_h, 0)
+    #ax.axis('off')
+    plt.show()
 
 
+def get_n_coef(x, nX, nX2):
+    x2 = nX2 - 1
+    for i in range(nX2):
+        if i/nX2 >= x/nX:
+            x2 = i - 1
+            break
+    x21 = x2
+    x22 = x2 + 1
+    c1 = (x22/nX2 - x/nX)/(x22/nX2 - x21/nX2)
+    c2 = 1 - c1
+    return x21, x22, c1, c2
+    
 
-def plot_map(voxel_status_array, t_values, x_list=None, y_list=None, z_list=None, \
+def plot_maps(voxel_status_array, t_values, x_list=None, y_list=None, z_list=None, \
              nX=None, nY=None, nZ=None, nR=None, nT=None, nS=None, \
-                array_to_show=None, contrast_name='', mode='str', save=True, way=None, auto_end=False):
+                array_to_show=None, contrast_name='', mode='str', save=True, way=None, auto_end=False, K=None, anat_map_array=None):
     if contrast_name != '':
         contrast_line = '_' + contrast_name+' contrast'
     plot_slices = []
@@ -2833,7 +2982,12 @@ def plot_map(voxel_status_array, t_values, x_list=None, y_list=None, z_list=None
         for x in range(new_voxel_array.shape[0]):
             for y in range(new_voxel_array.shape[1]):
                 for z in range(new_voxel_array.shape[2]):
-                    new_voxel_array[x, y, z] *= np.mean(t_values[coord_voxel(x, y, z, nX, nY, nZ)])
+                    if coord_voxel(x, y, z, nX, nY, nZ) in t_values.keys():
+                        new_voxel_array[x, y, z] *= np.mean(t_values[coord_voxel(x, y, z, nX, nY, nZ)])
+                    else:
+                        new_voxel_array[x, y, z] = 0.0
+
+        #print(new_voxel_array)
     else:
         new_voxel_array = array_to_show.copy()
 
@@ -2859,7 +3013,7 @@ def plot_map(voxel_status_array, t_values, x_list=None, y_list=None, z_list=None
     for i, plot_slice in enumerate(plot_slices):
         fig = plt.figure(figsize=(5, 5))
         #print(plot_slice)
-        plt.imshow(plot_slice, cmap='Greys_r')
+        plt.imshow(plot_slice, cmap='gray', aspect='auto')
         #plt.imshow(plot_slice, cmap='gray', origin='lower')
         plt.title(plot_names[i]+contrast_line)
         plt.xlabel(axis_slice[i][0] + ' axis')
@@ -2871,9 +3025,13 @@ def plot_map(voxel_status_array, t_values, x_list=None, y_list=None, z_list=None
         plt.show()
 
     while not auto_end:
-        print(contrast_name)
-        print(way)
-        slice_str = input(f'Введите срез формата x/y/z = n или end:')
+        if contrast_name is not None:
+            print('contrast =', contrast_name)
+        if way is not None:
+            print('way =', way)
+        if K is not None:
+            print('K =', K)
+        slice_str = input(f'Размеры изображения: {new_voxel_array.shape}. \nВведите срез формата x/y/z = n или end:')
         if 'end' in slice_str:
             break
         
@@ -2888,28 +3046,42 @@ def plot_map(voxel_status_array, t_values, x_list=None, y_list=None, z_list=None
                 if n.isdigit():
                     if var == 'x':
                         x = int(n)
-                        name = f'Срез по x = {x}'
-                        slice = new_voxel_array[x, :, :]
+                        map_slice = new_voxel_array[x, :, :]
+                        n_anat = int(x / nX * anat_map_array.shape[0])
+                        anat_slice = anat_map_array[n_anat, :, :]
                         axis = ['y', 'z']
+                        name = f'Срез по x = {x}/{nX}, anat: {n_anat}/{anat_map_array.shape[0]}'
                     elif var == 'y':
                         y = int(n)
-                        name = f'Срез по y = {y}'
-                        slice = new_voxel_array[:, y, :]
+                        map_slice = new_voxel_array[:, y, :]
+                        #n1, n2, c1, c2 = get_n_coef(y, nY, new_voxel_array.shape[1])
+                        n_anat = int(y / nY * anat_map_array.shape[1])
+                        anat_slice = anat_map_array[:, n_anat, :]
+                        #anat_slice = c1 * anat_map_array[:, n1, :] + c2 * anat_map_array[:, n2, :]
+                        #anat_slice = anat_map_array[:, y, :]
                         axis = ['x', 'z']
+                        name = f'Срез по y = {y}/{nY}, anat: {n_anat}/{anat_map_array.shape[1]}'
                     else:
                         z = int(n)
-                        name = f'Срез по z = {z}'
-                        slice = new_voxel_array[:, :, z]
+                        map_slice = new_voxel_array[:, :, z]
+                        #n1, n2, c1, c2 = get_n_coef(z, nZ, new_voxel_array.shape[2])
+                        n_anat = int(z / nZ * anat_map_array.shape[2])
+                        anat_slice = anat_map_array[:, :, n_anat]
+                        #anat_slice = anat_map_array[:, :, z]
                         axis = ['x', 'y']
-                    fig = plt.figure(figsize=(5, 5))
-                    plt.imshow(slice, cmap='Greys_r')
-                    plt.title(name)
-                    plt.xlabel(axis[0] + ' axis')
-                    plt.ylabel(axis[1] + ' axis')
-                    plt.colorbar(label='t-values')
-                    plt.clim(0, 1)
-                    plt.axis('off')
-                    plt.show()
+                        name = f'Срез по z = {z}/{nZ}, anat: {n_anat}/{anat_map_array.shape[2]}'
+                    #fig = plt.figure(figsize=(5, 5))
+                    #plt.imshow(slice, cmap='gray', aspect='auto')
+                    #plt.title(name)
+                    #plt.xlabel(axis[0] + ' axis')
+                    #plt.ylabel(axis[1] + ' axis')
+                    #plt.colorbar(label='t-values')
+                    #plt.clim(0, 1)
+                    #plt.axis('off')
+                    #plt.show()
+                    print('Plotting slice:', name)
+                    print('anat_slice shape:', anat_slice.shape, 'map_slice shape:', map_slice.shape)
+                    plot_map(anat_slice, map_slice, axis=axis, name=name)
                 else:
                     print('Invalid number of slice:', n, 'is not a number')
                     continue
@@ -2961,6 +3133,7 @@ def computing(X_matrixes, patient_data_dict, contrasts, K_list, X2, voxels_list=
             #print(z, len(X_matrixes))
             X_list = X_matrixes[z]
             #Y_list = get_Y(patient_data_path, voxel = (x, y, z))
+            #print(x, y, z, 'воксель', v, 'из', nV, 'считали Y_list')
             for run in runs:
                 Y_list.append(np.array([scan[x,y,z] for scan in patient_data_dict[run]]))
             ta = time.time()
@@ -3442,9 +3615,47 @@ def make_data_for_SPM(patient_data_path, patient_logs_path, patient, new_patient
         
     copy_struct(patient_data_path, new_patient_path, patient)
 
+def make_data_SPM(patient_data_path, save_path, patient):
+    patient_logs_path = os.path.join(patient_data_path, 'log')
+    patient_name = patient
+    print(patient_data_path)
+    print(patient_name)
+    if not os.path.exists(os.path.join(save_path, patient_name)):
+        os.mkdir(os.path.join(save_path, patient_name))
+    if not os.path.exists(os.path.join(save_path, patient_name, 'log')):
+        os.mkdir(os.path.join(save_path, patient_name, 'log'))
+    if not os.path.exists(os.path.join(save_path, patient_name, 'Me')):
+        os.mkdir(os.path.join(save_path, patient_name, 'Me'))
+    if not os.path.exists(os.path.join(save_path, patient_name, 'Friend')):
+        os.mkdir(os.path.join(save_path, patient_name, 'Friend'))
+    if not os.path.exists(os.path.join(save_path, patient_name, 'structural')):
+        os.mkdir(os.path.join(save_path, patient_name, 'structural'))
+    #logs_dict = load_patient_logs(patient_logs_path)
+    logs_paths = os.listdir(patient_logs_path)
+    for log_path in logs_paths:
+        log_file = pd.read_csv(os.path.join(patient_logs_path, log_path), sep='\t')
+        log_file.to_csv(os.path.join(save_path, patient_name, 'log', log_path.split('.')[0] + '.txt'), index=False, sep='\t')
+    for i in range(1, 4):
+        for block in ['fr', 'me']:
+            run_path = os.path.join(patient_data_path, block + '_' + str(i))
+            scans = os.listdir(run_path)
+            for scan in scans:
+                scan_path = os.path.join(run_path, scan)
+                if block == 'me':
+                    if not os.path.exists(os.path.join(save_path, patient_name, 'Me', 'run' + str(i))):
+                        os.mkdir(os.path.join(save_path, patient_name,  'Me', 'run' + str(i)))
+                    shutil.copy(scan_path, os.path.join(save_path, patient_name, 'Me', 'run' + str(i), scan))
+                if block == 'fr':
+                    if not os.path.exists(os.path.join(save_path, patient_name, 'Friend', 'run' + str(i))):
+                        os.mkdir(os.path.join(save_path, patient_name, 'Friend', 'run' + str(i)))
+                    shutil.copy(scan_path, os.path.join(save_path, patient_name, 'Friend', 'run' + str(i), scan))
+    struct_path = os.path.join(patient_data_path, 'structural')
+    anat_scan_path = os.path.join(patient_data_path, 'structural', patient_name + '_T1.nii')
+    shutil.copy(anat_scan_path, os.path.join(save_path, patient_name,  'structural', patient_name + '_T1.nii'))
 
-import numpy as np
-from scipy.ndimage import gaussian_filter
+
+
+
 
 def smooth_covariance_maps(cov_maps, fwhm_mm=8.0, voxel_size=(2.0, 2.0, 5.0)):
     """
@@ -3478,6 +3689,113 @@ def smooth_covariance_maps(cov_maps, fwhm_mm=8.0, voxel_size=(2.0, 2.0, 5.0)):
             )
     
     return smoothed_maps
+
+class Tee(object):
+    def __init__(self, *files):
+        self.files = files
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+            f.flush()
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
+def GLM_LS(X, Y, V=None, nX=None, nY=None, nZ=None, nR=None, nT=None, nS=None, voxel=None):
+    if V is None:
+        V = np.eye(nT)
+    #Тут расчеты для параметров регрессии как в SPM
+    beta_hat = np.linalg.inv(X.T @ X) @ X.T @ Y
+    e = Y - X @ beta_hat
+    R = np.eye(nS) - X @ np.linalg.inv(X.T @ X) @ X.T
+    sigma2_hat = (e.T @ e) / np.trace(R)
+    return beta_hat, sigma2_hat
+    
+    
+
+def run_like_SPM(X_matrixes, patient_data_dict, contrasts, voxels_list=None, \
+                             x_list=None, y_list=None, z_list=None, nX=None, \
+            nY=None, nZ=None, nR=None, nT=None, nS=None, return_dict=None, runs=None) -> Tuple[Dict, Dict]:
+    nV = nX * nY * nZ
+    me_runs = [run for run in runs if run.startswith('me')]
+    fr_runs = [run for run in runs if run.startswith('fr')]
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", category=IntegrationWarning)
+    warnings.filterwarnings("ignore", message='.*cgi.*', category=DeprecationWarning)
+    warnings.filterwarnings("ignore", message=".*'cgi' is deprecated.*", category=DeprecationWarning)
+    try:
+        print(f"Process {os.getpid()} started with {len(voxels_list)} voxels", flush=True)
+        #print('Computing', voxels_list)
+        if voxels_list is None:
+            voxels_list = []
+            for x in range(nX):
+                for y in range(nY):
+                    for z in range(nZ):
+                        voxels_list.append(coord_voxel(x, y, z, nX, nY, nZ))
+        t_values = {}
+        T_values = {}
+        mean_beta_dict = {}
+        cov_beta_dict = {}
+        Omega_dict = {}
+        mu_dict = {}
+        for contrast_name in contrasts.keys():
+            t_values[contrast_name] = {}
+            T_values[contrast_name] = {}
+        t0 = time.time()
+        for i, v in enumerate(voxels_list):
+            if i % 100 == 1:
+                print(os.getpid(), i, '/', len(voxels_list))
+            Y_list = []
+            t1 = time.time()
+            x, y, z = voxel_coord(v, nX, nY, nZ)
+            #print(z, len(X_matrixes))
+            X_list = X_matrixes[z]
+            #Y_list = get_Y(patient_data_path, voxel = (x, y, z))
+            mean_beta_dict[v] = []
+            cov_beta_dict[v] = []
+            for j, run in enumerate(runs):
+                Y_list.append(np.array([scan[x,y,z] for scan in patient_data_dict[run]]))
+                mean_beta, disp_beta, mu, Omega = GLM_LS(X_list[j], Y_list[j], nX, nY, nZ, nR, nT, nS)
+                mean_beta_dict[v].append(mean_beta.copy())
+                cov_beta_dict[v].append(disp_beta.copy())
+
+            for contrast_name, contrast in contrasts.items():
+                t_value_list = get_t_value(mean_beta_dict[v], cov_beta_dict[v], contrast, nX, nY, nZ, nR, nT, nS)
+                t_values[contrast_name][v] = np.array(t_value_list)
+                del t_value_list
+            del Y_list
+            del mean_beta
+            del disp_beta
+                #t2 = time.time()
+                    #print(f'Затрачено времени t={t2-t1}')
+        t1 = time.time()
+        print(os.getpid() ,len(voxels_list), 'вокселей за', t1-t0, 'секунд')
+        '''
+        for v in voxels_list:
+            return_dict['t'][v] = t_values[v].copy
+            return_dict['T'][v] = T_values[v].copy
+        '''
+        #print(is_serializable(t_values), is_serializable(T_values))
+        #print(total_size(t_values), total_size(T_values))
+        return t_values
+        #with tempfile.NamedTemporaryFile(delete=False, suffix='.npz', dir='.', prefix='resulf_', mode='wb') as f:
+        #    np.savez(f, t_values=t_values, T_values=T_values)
+        #    return f.name
+    except Exception as e:
+        traceback.print_exc(file=sys.stderr)
+        with open(f"errors_voxels_{os.getpid()}.log", "w") as log_file:
+            log_file.write("Exception in computing:\n")
+            log_file.write(traceback.format_exc())
+        raise e
+    
+
+def run_SPM_on_chunk(args) -> Tuple[Dict, Dict]:
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", category=IntegrationWarning)
+    warnings.filterwarnings("ignore", message='.*cgi.*', category=IntegrationWarning)
+    voxels_chunk, X_matrixes, patient_data_dict, contrasts, x_list, y_list, z_list, nX, nY, nZ, nR, nT, nS, runs = args
+    return run_like_SPM(X_matrixes, patient_data_dict, contrasts, voxels_chunk, x_list, y_list, z_list, nX, nY, nZ, nR, nT, nS, runs=runs)
+    
 
 
 
